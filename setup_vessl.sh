@@ -63,6 +63,18 @@ echo "======================================================================"
 #    권하지만, 최신판(0.3.1)이 llama-index-core<0.13 에 묶여 있어 설치하는 순간
 #    core 가 0.14.24 -> 0.12.52 로 끌려 내려가고 llama-index 전체가 깨진다.
 #    노트북에서 LLMQuestionGenerator 를 직접 넘기는 방식으로 우회했다.
+#
+# 그 패키지는 혼자 오지 않는다. llama-index-agent-openai, llama-index-program-openai
+# 같은 구버전 핀 형제들을 함께 끌고 온다. core 만 되돌려도 이들이 남아
+# pip 이 계속 충돌을 보고한다. 먼저 걷어낸다.
+LEGACY="llama-index-question-gen-openai llama-index-agent-openai llama-index-program-openai"
+for p in $LEGACY; do
+  if pip show "$p" >/dev/null 2>&1; then
+    echo "  구버전 핀 패키지 제거: $p"
+    pip uninstall -q -y "$p"
+  fi
+done
+
 pip install -q -c "$CONSTRAINTS" -U \
     llama-index llama-index-core llama-index-retrievers-bm25 \
     llama-index-llms-openai-like PyStemmer
@@ -70,21 +82,33 @@ pip install -q -c "$CONSTRAINTS" -U \
 echo
 echo "  llama-index 정합성 확인:"
 python - <<'PY'
-from importlib.metadata import version
-try:
-    core = version("llama-index-core")
-    major_minor = tuple(int(x) for x in core.split(".")[:2])
-    print(f"    llama-index-core {core}")
-    if major_minor < (0, 14):
-        raise SystemExit(
-            f"\n    ★ core 가 {core} 로 낮습니다. llama-index-question-gen-openai 같은\n"
-            "      구버전 핀 패키지가 설치돼 끌어내렸을 수 있습니다. 복구하세요:\n"
-            "        pip uninstall -y llama-index-question-gen-openai\n"
-            "        pip install -U 'llama-index-core>=0.14' llama-index\n"
-        )
-except Exception as e:
-    print(f"    확인 실패: {e}")
-    raise
+import sys
+from importlib.metadata import version, PackageNotFoundError
+
+MIN = {                       # 이보다 낮으면 구버전 핀 패키지에 끌려 내려간 것이다
+    "llama-index-core": (0, 14),
+    "llama-index-llms-openai-like": (0, 7),   # 0.4.x 는 transformers<5 를 요구한다
+}
+bad = []
+for pkg, want in MIN.items():
+    try:
+        v = version(pkg)
+    except PackageNotFoundError:
+        print(f"    {pkg:<32} (미설치)")
+        continue
+    got = tuple(int(x) for x in v.split(".")[:2])
+    mark = "" if got >= want else f"  ★ {'.'.join(map(str, want))} 이상 필요"
+    print(f"    {pkg:<32} {v}{mark}")
+    if got < want:
+        bad.append(pkg)
+
+if bad:
+    print("\n    ★ 구버전 핀 패키지가 llama-index 를 끌어내렸습니다.")
+    print("      llama-index-question-gen-openai 와 그 형제들이 원인입니다. 복구:")
+    print("        pip uninstall -y llama-index-question-gen-openai \\")
+    print("            llama-index-agent-openai llama-index-program-openai")
+    print("        pip install -U llama-index llama-index-core llama-index-llms-openai-like")
+    sys.exit(1)
 PY
 
 echo

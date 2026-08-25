@@ -490,14 +490,17 @@ def set_source(cell: dict, text: str) -> None:
 def find_source(work_rel: str) -> Path:
     """work 상대경로에 대응하는 원본을 찾는다.
 
-    원본은 확장자가 없고 이름에 공백이 있다 ("HPC_DPO 실습").
-    work 쪽은 공백을 없애고 .ipynb 를 붙였다 ("HPC_DPO실습.ipynb").
-    공백을 제거한 이름으로 대조한다.
+    원본은 이름에 공백이 있다 ("HPC_DPO 실습.ipynb").
+    work 쪽은 공백을 없앴다 ("HPC_DPO실습.ipynb").
+    공백과 확장자를 모두 걷어낸 이름으로 대조한다.
+
+    (원본은 원래 확장자가 없었으나, Jupyter 에서 열리지 않아 .ipynb 를 붙였다.
+     내용은 그대로다 — 해시로 확인했다.)
     """
     day, name = work_rel.split("/")
     want = name.removesuffix(".ipynb")
     for p in (SRC / day).iterdir():
-        if p.is_file() and p.name.replace(" ", "") == want:
+        if p.is_file() and p.name.replace(" ", "").removesuffix(".ipynb") == want:
             return p
     raise SystemExit(f"[중단] 원본을 찾지 못했습니다: {SRC/day} 에서 {want!r}")
 
