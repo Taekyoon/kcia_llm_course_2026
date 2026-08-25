@@ -129,6 +129,31 @@ GPU    NVIDIA L40S 44.4GB (sm_89, Ada)
    → **실측 결과 정상 동작합니다.** 모델 로딩·NCCL 초기화까지 문제없었습니다.
 3. **서빙 시 `--gpu-memory-utilization 0.80 --max-model-len 16384` 를 반드시 붙이세요.**
 
+### ⚠️ 서빙 실습과 학습 실습은 같이 못 돌립니다
+
+**GPU 가 하나이고 vLLM 이 기동 시 80% 를 선점**하기 때문입니다.
+서버를 띄운 채로 학습 노트북을 돌리면 이렇게 죽습니다:
+
+```
+Process 3238 has 35.79 GiB memory in use.          ← vLLM
+OutOfMemoryError: Tried to allocate 20.00 MiB ... 4.75 MiB is free
+```
+
+**2일차가 특히 문제입니다.** 퓨샷(서빙)과 SFT·DPO·GRPO(학습)가 같은 날에 있습니다.
+
+| 실습 | vLLM 서버 |
+|---|---|
+| 퓨샷 · Amazon 요약 · BM25 RAG | **켜야 함** |
+| Classification · NER · MiniGPT · SFT · DPO · GRPO | **꺼야 함** |
+
+전환할 때는 서버를 확실히 내리고 메모리가 반환됐는지 확인하세요.
+
+```bash
+pkill -f 'vllm serve' ; sleep 5 ; nvidia-smi
+```
+
+Jupyter 커널도 3~4GB 를 잡고 있으므로, 실습 사이에 **커널 재시작**을 안내하는 편이 안전합니다.
+
 ### 서빙 실행
 
 ```bash

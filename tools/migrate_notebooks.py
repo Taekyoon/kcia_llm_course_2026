@@ -84,6 +84,27 @@ WHY_PROC = "transformers 5: Trainer(tokenizer=) 제거 → processing_class= (D-
 WHY_TOKATTR = "transformers 5: trainer.tokenizer 속성 제거 → processing_class (D-4 실측 확정)"
 WHY_PEFT = "TRL 현행 권장: get_peft_model() 선감싸기 → peft_config= 인자 전달 (D-4)"
 
+# transformers 5.x 에서 apply_chat_template(return_tensors="pt") 는 텐서가 아니라
+# BatchEncoding 을 돌려준다. 그걸 generate(input_ids=...) 에 넣으면
+# inputs_tensor.shape[0] 에서 AttributeError 가 난다.
+# return_dict=True 로 명시하고 **inputs 로 펼쳐 넘기는 것이 현행 권장 형태다.
+CHAT_TMPL_OLD = (
+    'input_ids = tokenizer.apply_chat_template(messages, truncation=True, '
+    'add_generation_prompt=True, return_tensors="pt").to("cuda")'
+)
+CHAT_TMPL_NEW = (
+    '# transformers 5 에서 apply_chat_template 은 BatchEncoding 을 돌려준다.\n'
+    '# 예전처럼 generate(input_ids=...) 로 넘기면 AttributeError 가 난다.\n'
+    'inputs = tokenizer.apply_chat_template(\n'
+    '    messages, add_generation_prompt=True,\n'
+    '    return_tensors="pt", return_dict=True,\n'
+    ').to("cuda")'
+)
+GEN_OLD = "outputs = model.generate(\n        input_ids=input_ids,"
+GEN_NEW = "outputs = model.generate(\n        **inputs,"
+WHY_CHAT = ("transformers 5: apply_chat_template 이 BatchEncoding 반환 → "
+            "generate(input_ids=) 에서 AttributeError (실행 검증에서 확인)")
+
 
 MIGRATIONS: list[Migration] = [
     # =====================================================================
@@ -221,6 +242,8 @@ MIGRATIONS: list[Migration] = [
              "transformers 5 에서 overwrite_output_dir 제거됨 → TypeError (실행 검증에서 확인)"),
         Rule(23, "trainer.tokenizer.save_pretrained(output_dir)",
              "trainer.processing_class.save_pretrained(output_dir)", WHY_TOKATTR),
+        Rule(27, CHAT_TMPL_OLD, CHAT_TMPL_NEW, WHY_CHAT),
+        Rule(27, GEN_OLD, GEN_NEW, WHY_CHAT),
     ]),
 
     # =====================================================================
@@ -232,6 +255,8 @@ MIGRATIONS: list[Migration] = [
              "transformers 5 에서 overwrite_output_dir 제거됨 → TypeError (실행 검증에서 확인)"),
         Rule(18, "trainer.tokenizer.save_pretrained(output_dir)",
              "trainer.processing_class.save_pretrained(output_dir)", WHY_TOKATTR),
+        Rule(22, CHAT_TMPL_OLD, CHAT_TMPL_NEW, WHY_CHAT),
+        Rule(22, GEN_OLD, GEN_NEW, WHY_CHAT),
     ]),
 
     # =====================================================================
@@ -249,6 +274,12 @@ MIGRATIONS: list[Migration] = [
              "TRL 1.x 에서 GRPOConfig.max_prompt_length 제거됨 → TypeError (실행 검증에서 확인)"),
         Rule(21, "trainer.tokenizer.save_pretrained(output_dir)",
              "trainer.processing_class.save_pretrained(output_dir)", WHY_TOKATTR),
+        # GRPO 만 줄바꿈 위치가 다르다
+        Rule(25,
+             'input_ids = tokenizer.apply_chat_template(messages, truncation=True,\n'
+             '                                          add_generation_prompt=True, return_tensors="pt").to("cuda")',
+             CHAT_TMPL_NEW, WHY_CHAT),
+        Rule(25, GEN_OLD, GEN_NEW, WHY_CHAT),
     ]),
 
     # =====================================================================
@@ -337,8 +368,10 @@ MIGRATIONS: list[Migration] = [
              "# vLLM 은 별도 venv 에서 서버로 띄우고 여기서는 HTTP 로 붙는다.\n"
              "# llama-index-llms-vllm(in-process) 대신 openai-like 를 쓴다.\n"
              "# 주의: %pip 매직에서 백슬래시 줄바꿈은 불안정하다. 한 줄로 쓴다.\n"
+             "# llama-index-question-gen-openai 는 SubQuestionQueryEngine 이 요구한다.\n"
              "%pip install -q -U llama-index llama-index-retrievers-bm25 "
-             "llama-index-llms-openai-like datasets PyStemmer",
+             "llama-index-llms-openai-like llama-index-question-gen-openai "
+             "datasets PyStemmer matplotlib",
              "in-process vLLM → HTTP 접속. torch 충돌 회피 (D-10)"),
         # 이 노트북에는 전역 규칙이 없으므로 old 는 원본 문자열 그대로다.
         Rule(4,

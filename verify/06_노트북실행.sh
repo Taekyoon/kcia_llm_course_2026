@@ -47,7 +47,7 @@ SLOW=(
 )
 
 case "${1:-fast}" in
-  all)     TARGETS=("${FAST[@]}" "${SLOW[@]}") ;;
+  # all 은 일부러 두지 않는다. 서빙계와 학습계는 한 GPU 에서 같이 못 돈다(아래 참조).
   fast)    TARGETS=("${FAST[@]}") ;;
   slow)    TARGETS=("${SLOW[@]}") ;;
   amazon)  TARGETS=("3일차/HPC_Amazon요약실습.ipynb|1200") ;;
@@ -68,19 +68,51 @@ echo "======================================================================"
 echo " 노트북 실행 검증 — 대상 ${#TARGETS[@]}종"
 echo "======================================================================"
 
-# 서빙계가 포함되면 서버부터 확인한다. 없으면 시간만 버린다.
-if printf '%s\n' "${TARGETS[@]}" | grep -qE 'Amazon|BM25|퓨샷'; then
-  if curl -sf http://localhost:8000/v1/models >/dev/null 2>&1; then
-    echo " vLLM 서버: 응답함"
+has_serving=$(printf '%s\n' "${TARGETS[@]}" | grep -cE 'Amazon|BM25|퓨샷' || true)
+has_training=$(printf '%s\n' "${TARGETS[@]}" | grep -cE 'Classification|NER|MiniGPT|SFT|DPO|GRPO' || true)
+vllm_up=$(curl -sf http://localhost:8000/v1/models >/dev/null 2>&1 && echo 1 || echo 0)
+
+nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader | sed 's/^/ GPU 메모리: /'
+
+# ★ 서빙계와 학습계는 **같이 못 돌린다.**
+#    vLLM 은 기동 시 GPU 의 80% 를 선점한다(--gpu-memory-utilization 0.80).
+#    그 상태로 학습 노트북을 돌리면 OutOfMemoryError 가 난다. 실제로 그렇게 만들었다:
+#      Process 3238 has 35.79 GiB memory in use.  ← vLLM
+#      OutOfMemoryError: Tried to allocate 20.00 MiB ... 4.75 MiB is free
+#    이건 이 스크립트만의 문제가 아니라 **강의 운영에도 그대로 적용되는 제약**이다.
+#    2일차는 서빙 실습(퓨샷)과 학습 실습(SFT/DPO/GRPO)이 같은 날에 있다.
+if [ "${has_serving:-0}" -gt 0 ] && [ "${has_training:-0}" -gt 0 ]; then
+  echo
+  echo " ★ 서빙계와 학습계를 함께 지정했습니다. 한 GPU 에서는 같이 돌 수 없습니다."
+  echo "   vLLM 이 GPU 의 80% 를 선점하므로 학습계가 OOM 으로 죽습니다."
+  echo "   나눠서 실행하세요:"
+  echo "       bash verify/06_노트북실행.sh fast    # 서빙계 — vLLM 켠 상태"
+  echo "       (vLLM 종료)"
+  echo "       bash verify/06_노트북실행.sh slow    # 학습계 — vLLM 끈 상태"
+  echo
+  exit 1
+fi
+
+if [ "${has_serving:-0}" -gt 0 ]; then
+  if [ "$vllm_up" = "1" ]; then
+    echo " vLLM 서버: 응답함 (서빙계 실행에 필요)"
   else
     echo " ★ vLLM 서버가 응답하지 않습니다. 서빙계 노트북은 실패합니다."
     echo "   source /opt/vllm-env/bin/activate"
     echo "   nohup vllm serve Qwen/Qwen3-4B-Instruct-2507 --port 8000 \\"
     echo "       --gpu-memory-utilization 0.80 --max-model-len 16384 > /tmp/vllm.log 2>&1 &"
-    echo
+    exit 1
   fi
 fi
-nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader | sed 's/^/ GPU 메모리: /'
+
+if [ "${has_training:-0}" -gt 0 ] && [ "$vllm_up" = "1" ]; then
+  echo
+  echo " ★ 학습계를 돌리려는데 vLLM 서버가 떠 있습니다. GPU 를 선점하고 있어 OOM 이 납니다."
+  echo "   먼저 내려주세요:"
+  echo "       pkill -f 'vllm serve' ; sleep 5 ; nvidia-smi"
+  echo
+  exit 1
+fi
 echo
 
 PASS=(); FAIL=()

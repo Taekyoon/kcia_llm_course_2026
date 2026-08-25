@@ -59,7 +59,11 @@ echo "======================================================================"
 # llama-index-llms-vllm(in-process) 대신 openai-like 를 쓴다.
 # in-process 로 띄우면 이 커널의 torch 와 충돌한다.
 pip install -q -c "$CONSTRAINTS" -U \
-    llama-index-core llama-index-retrievers-bm25 llama-index-llms-openai-like PyStemmer
+    llama-index-core llama-index-retrievers-bm25 llama-index-llms-openai-like \
+    llama-index-question-gen-openai PyStemmer
+# llama-index-question-gen-openai : SubQuestionQueryEngine.from_defaults() 가 요구한다.
+#   없으면 ImportError 로 죽는다. 이름과 달리 OpenAI API 를 호출하지는 않는다
+#   (Settings.llm 으로 지정한 로컬 vLLM 을 쓴다).
 
 echo
 echo "======================================================================"
