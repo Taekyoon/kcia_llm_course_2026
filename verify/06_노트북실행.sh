@@ -105,14 +105,20 @@ for item in "${TARGETS[@]}"; do
     # ⚠️ 완주 != 정상 동작.
     # Amazon 요약은 각 스텝이 try/except 로 감싸여 있어 LLM 호출이 전부 실패해도
     # 'error' 문자열을 반환하며 끝까지 진행된다. 결과물을 따로 봐야 한다.
-    nerr=$(grep -o "\"error\"" "$OUT/${name}.executed.ipynb" 2>/dev/null | wc -l)
-    if [ "$nerr" -gt 0 ]; then
-      echo "   ⚠️  출력에 'error' 가 ${nerr}회 나옵니다 — 예외를 삼키고 진행했을 수 있습니다."
-      echo "      확인: grep -n \"'error'\" $OUT/${name}.executed.ipynb | head"
+    # grep -c 는 매치가 0이면 exit 1 이다. `|| echo 0` 을 붙이면 "0\n0" 이 되어
+    # [ "$n" -gt 0 ] 이 integer expression expected 로 깨진다. 실제로 그렇게 만들었다.
+    # grep 을 wc 로 받아 항상 숫자 하나가 나오게 한다.
+    count_in() { grep -o "$1" "$2" 2>/dev/null | wc -l | tr -d ' '; }
+
+    nerr=$(count_in "\"error\"" "$OUT/${name}.executed.ipynb")
+    if [ "${nerr:-0}" -gt 0 ]; then
+      echo "   ⚠️  출력에 'error' 가 ${nerr}회 — 예외를 삼키고 진행했을 수 있습니다."
     fi
-    # 예외 흔적도 훑는다 (allow-errors 를 안 써서 보통은 없지만 삼켜진 것이 남는다)
-    ntb=$(grep -ci "traceback\|Error:" "$OUT/${name}.log" 2>/dev/null || echo 0)
-    [ "$ntb" -gt 0 ] && echo "   ⚠️  로그에 에러 흔적 ${ntb}줄 — $OUT/${name}.log 확인 권장"
+    ntb=$(count_in "Traceback" "$OUT/${name}.executed.ipynb")
+    if [ "${ntb:-0}" -gt 0 ]; then
+      echo "   ⚠️  Traceback 흔적 ${ntb}회 — 셀 안에서 잡힌 예외가 있습니다."
+    fi
+    echo "   출력 확인: python tools/show_nb_outputs.py $OUT/${name}.executed.ipynb"
   else
     el=$(( $(date +%s) - t0 ))
     echo "   ❌ 실패 (${el}초)"
