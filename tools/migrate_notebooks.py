@@ -323,6 +323,211 @@ MIGRATIONS: list[Migration] = [
              "# vLLM 은 별도 venv 에서 서버로 띄운다 (verify/02_vllm_venv.sh 참조).\n"
              "# openai<3 : llama-index-llms-openai 가 openai<3 을 요구한다(3일차와 같은 환경)\n"
              "%pip install -q -U 'openai<3' datasets pydantic", WHY_PIP),
+        # ── 프롬프트 6종 한국어화 ────────────────────────────────────
+        # 원본은 전부 영어이고 마지막 프롬프트는 "in English only" 로 못박혀 있었다.
+        # 한국어 강의인데 수강생이 프롬프트를 읽지 않고 넘어가게 된다.
+        # 입력(영문 상품 설명)은 그대로 두고 프롬프트와 출력만 한국어로 바꾼다.
+        # → "영문 원본에서 한국어 데이터셋을 만드는" 실습이 되어 3단원 데이터 처리와 맞는다.
+        Rule(12,
+             'STEP_1_PROMPT = """Objective:\n'
+             'Analyze the provided product description and identify the types of features that can be attributed to the product.\n'
+             '\n'
+             'Task:\n'
+             '1. List the names of the feature types (e.g., color, size, material, etc.).\n'
+             '2. For each feature type, provide a brief description explaining what it represents.\n'
+             '\n'
+             'Key Considerations:\n'
+             '\n'
+             '1. Explicit Mention: Only include feature types that are explicitly mentioned in the product description to ensure accuracy.\n'
+             '2. Clear Descriptions: Ensure each description is concise and clearly explains the feature type without including specific values.\n'
+             '3. JSON Validity: Verify the JSON format for proper syntax to ensure usability and avoid errors.\n'
+             '\n'
+             'Example of Desired Output:\n'
+             '\n'
+             '[\n'
+             '    {"feature_type": "Color", "descript": "The available shades or hues of the product."},\n'
+             '    {"feature_type": "Size", "descript": "The dimensions or measurements of the product."},\n'
+             '    {"feature_type": "Material", "descript": "The substance used to make the product."},\n'
+             '    {"feature_type": "Brand", "descript": "The manufacturer or brand name of the product."},\n'
+             '    {"feature_type": "Release Year", "descript": "The year the product was released."},\n'
+             ']\n'
+             '"""',
+
+             'STEP_1_PROMPT = """목표:\n'
+             '주어진 상품 설명을 분석해서, 이 상품에 어떤 종류의 속성이 있는지 찾아내세요.\n'
+             '\n'
+             '할 일:\n'
+             '1. 속성의 종류를 나열합니다 (예: 색상, 크기, 재질 등).\n'
+             '2. 각 속성이 무엇을 뜻하는지 짧게 설명합니다.\n'
+             '\n'
+             '주의할 점:\n'
+             '\n'
+             '1. 명시된 것만: 상품 설명에 실제로 나온 속성만 포함하세요. 추측하지 마세요.\n'
+             '2. 값이 아니라 종류: 설명에는 구체적인 값(예: "빨강")을 넣지 말고 종류만 설명하세요.\n'
+             '3. JSON 형식: 문법이 올바른 JSON 으로 출력하세요.\n'
+             '4. **모든 출력은 한국어로 작성하세요.** 입력이 영어여도 한국어로 답하세요.\n'
+             '\n'
+             '출력 예시:\n'
+             '\n'
+             '[\n'
+             '    {"feature_type": "색상", "descript": "상품이 제공하는 색상."},\n'
+             '    {"feature_type": "크기", "descript": "상품의 치수나 규격."},\n'
+             '    {"feature_type": "재질", "descript": "상품을 만든 소재."},\n'
+             '    {"feature_type": "브랜드", "descript": "제조사 또는 브랜드 이름."},\n'
+             '    {"feature_type": "출시연도", "descript": "상품이 출시된 연도."},\n'
+             ']\n'
+             '"""',
+             "프롬프트 한국어화 — Step 1 (속성 종류 찾기)"),
+
+        Rule(16,
+             'STEP_2_PROMPT = """Objective:\n'
+             'Categorize the identified features into the following subsections\n'
+             '\n'
+             'Task:\n'
+             '\n'
+             '- Organize into Subsections: Group the identified feature types into the predefined subsections.\n'
+             '- JSON Output: Present the final result in a structured JSON format, with each subsection containing an array of feature objects.\n'
+             '\n'
+             'Key Considerations:\n'
+             '\n'
+             '- Explicit Mention: Only include feature types that are explicitly mentioned in the product description to ensure accuracy.\n'
+             '- Clear Descriptions: Ensure each description is concise and clearly explains the feature type without including specific values.\n'
+             '- JSON Validity: Verify the JSON format for proper syntax to ensure usability and avoid errors.\n'
+             '\n'
+             'Example of Desired Output:',
+
+             'STEP_2_PROMPT = """목표:\n'
+             '앞에서 찾은 속성들을 비슷한 것끼리 묶어서 분류하세요.\n'
+             '\n'
+             '할 일:\n'
+             '\n'
+             '- 그룹으로 묶기: 속성 종류들을 의미가 비슷한 것끼리 몇 개의 그룹으로 나눕니다.\n'
+             '- JSON 출력: 각 그룹이 속성 목록을 갖는 JSON 형태로 정리합니다.\n'
+             '\n'
+             '주의할 점:\n'
+             '\n'
+             '- 명시된 것만: 앞에서 나온 속성만 사용하세요. 새로 만들지 마세요.\n'
+             '- 그룹 이름은 짧고 명확하게: 무엇을 묶은 그룹인지 알 수 있어야 합니다.\n'
+             '- JSON 형식: 문법이 올바른 JSON 으로 출력하세요.\n'
+             '- **모든 출력은 한국어로 작성하세요.**\n'
+             '\n'
+             '출력 예시:',
+             "프롬프트 한국어화 — Step 2 (속성 그룹화)"),
+
+        Rule(16,
+             '        "subsection": "Product Specifications",\n'
+             '        "features": ["Color", "Size", "Material"]',
+             '        "subsection": "제품 사양",\n'
+             '        "features": ["색상", "크기", "재질"]',
+             "Step 2 출력 예시 한국어화"),
+        Rule(16,
+             '        "subsection": "Product Identification",\n'
+             '        "features": ["Brand", "Release Year"]',
+             '        "subsection": "제품 식별 정보",\n'
+             '        "features": ["브랜드", "출시연도"]',
+             "Step 2 출력 예시 한국어화"),
+
+        Rule(20,
+             'STEP_3_PROMPT = """Objective:\n'
+             'Extract and list details from the source text using the provided features.\n'
+             '\n'
+             'Task:\n'
+             '1. Extract relevant details from the source text.\n'
+             '2. List the extracted details using the provided JSON formats.\n'
+             '\n'
+             'Key Considerations:\n'
+             '1. Ensure the extracted details are accurate and complete.\n'
+             '2. Organize the listed details clearly and properly using the specified JSON structure.\n'
+             '\n'
+             'Example of Desired Output:\n'
+             '\n'
+             '[\n'
+             '    {"feature_type": "Color", "value": "yellow"},\n'
+             '    {"feature_type": "Brand", "value": "APPLE"},\n'
+             '    {"feature_type": "Release Year", "value": "2000"},\n'
+             ']\n'
+             '"""',
+
+             'STEP_3_PROMPT = """목표:\n'
+             '주어진 속성 목록을 이용해, 원문에서 실제 값을 뽑아내세요.\n'
+             '\n'
+             '할 일:\n'
+             '1. 원문에서 각 속성에 해당하는 값을 찾습니다.\n'
+             '2. 찾은 값을 JSON 형식으로 정리합니다.\n'
+             '\n'
+             '주의할 점:\n'
+             '1. 원문에 없는 값은 만들어내지 마세요. 없으면 그 속성은 빼세요.\n'
+             '2. 지정된 JSON 구조를 그대로 지키세요.\n'
+             '3. **모든 출력은 한국어로 작성하세요.** 단, 브랜드명이나 모델명 같은 고유명사는 원문 그대로 두세요.\n'
+             '\n'
+             '출력 예시:\n'
+             '\n'
+             '[\n'
+             '    {"feature_type": "색상", "value": "노란색"},\n'
+             '    {"feature_type": "브랜드", "value": "APPLE"},\n'
+             '    {"feature_type": "출시연도", "value": "2000"},\n'
+             ']\n'
+             '"""',
+             "프롬프트 한국어화 — Step 3 (값 추출). 고유명사는 원문 유지하도록 명시"),
+
+        Rule(26,
+             'STEP_4_PROMPT = """Objective:\n'
+             'Categorize potential buyers of this product based on their intended use or purposes.\n'
+             'Limit 3 to 4 Categories\n'
+             '\n'
+             'Task:\n'
+             '1. Identify distinct categories of users who are likely to purchase this product.\n'
+             '2. List the user categories using the provided JSON format.\n'
+             '\n'
+             'Key Considerations:\n'
+             '1. Use common sense and logical reasoning to group users into meaningful categories.\n'
+             '2. Ensure the category explanations are clear and concise.\n'
+             '3. Organize the listed categories in a clear and proper JSON structure, as shown below:',
+
+             'STEP_4_PROMPT = """목표:\n'
+             '이 상품을 살 만한 사람들을 사용 목적에 따라 분류하세요.\n'
+             '3~4개 그룹으로 제한합니다.\n'
+             '\n'
+             '할 일:\n'
+             '1. 이 상품을 구매할 만한 사용자 유형을 구분합니다.\n'
+             '2. 각 유형을 JSON 형식으로 정리합니다.\n'
+             '\n'
+             '주의할 점:\n'
+             '1. 상품 특성에 비추어 말이 되는 그룹으로 나누세요.\n'
+             '2. 각 그룹 설명은 짧고 명확하게 쓰세요.\n'
+             '3. **모든 출력은 한국어로 작성하세요.**\n'
+             '4. 아래 JSON 구조를 그대로 지키세요:',
+             "프롬프트 한국어화 — Step 4 (구매자 유형 분류)"),
+
+        Rule(35,
+             'FACTUAL_SUMMARY_PROMPT = """Given Json Format inputs, condense the product information into a concise, factual one line text. Please follow these example cases below.\n'
+             '\n'
+             '{"summary": "<Short Feature Express>: <Detailed One line Summary>"}\n'
+             '\n'
+             'Please output as a json format"""',
+
+             'FACTUAL_SUMMARY_PROMPT = """JSON 형식의 상품 정보가 주어집니다.\n'
+             '이를 사실 위주의 한 줄 문장으로 압축하세요.\n'
+             '\n'
+             '아래 형식을 지키세요.\n'
+             '{"summary": "<핵심 특징 한마디>: <한 줄 상세 요약>"}\n'
+             '\n'
+             '**모든 출력은 한국어로 작성하세요.**\n'
+             'JSON 형식으로만 출력하세요."""',
+             "프롬프트 한국어화 — 사실 요약"),
+
+        Rule(42,
+             'FEATURED_SUMMARY_PROMPT = """Given inputs, make multiple lines of feature summaries in English only and provide only the summarized sentence as the output.\n'
+             '\n'
+             'Please output as a json format"""',
+
+             'FEATURED_SUMMARY_PROMPT = """주어진 정보를 바탕으로 상품 특징 요약문을 여러 줄로 작성하세요.\n'
+             '요약 문장만 출력하고 다른 설명은 붙이지 마세요.\n'
+             '\n'
+             '**모든 출력은 한국어로 작성하세요.**\n'
+             'JSON 형식으로만 출력하세요."""',
+             "프롬프트 한국어화 — 고객별 요약. 원본은 'in English only' 로 못박혀 있었다"),
+
         # 셀 5 (Taekyoon/test_amazon) 는 손대지 않는다.
         # HF 에 라이선스 표기가 없어 F-1 에서 교체 대상으로 올렸으나,
         # 강사 본인 계정의 데이터셋이라 이용 권한 판단은 소유자 몫이다.
