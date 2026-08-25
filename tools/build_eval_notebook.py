@@ -288,7 +288,7 @@ from openai import OpenAI
 
 BASE = "http://localhost:8000/v1"
 MODEL = "Qwen/Qwen3-4B-Instruct-2507"
-client = OpenAI(api_key="EMPTY", base_url=BASE, timeout=30.0)
+client = OpenAI(api_key="EMPTY", base_url=BASE, timeout=60.0)
 
 # 서버가 없으면 이 아래 셀들이 전부 깨진다. 먼저 확인하고 안내한다.
 try:
@@ -327,6 +327,7 @@ JUDGE_PROMPT = \"\"\"당신은 한국어 QA 시스템의 답변을 채점합니�
 표현이 모범 답안과 달라도 **뜻이 맞으면 correctness 는 높게** 주세요.
 반대로 표현이 비슷해도 **사실이 틀렸으면 낮게** 주세요.
 
+reason 은 **한 문장으로 짧게** 쓰세요.
 JSON 으로만 답하세요.\"\"\"
 
 SCHEMA = {
@@ -335,7 +336,8 @@ SCHEMA = {
         "correctness": {"type": "integer", "minimum": 1, "maximum": 5},
         "relevance":   {"type": "integer", "minimum": 1, "maximum": 5},
         "fluency":     {"type": "integer", "minimum": 1, "maximum": 5},
-        "reason":      {"type": "string"},
+        # maxLength 를 걸지 않으면 모델이 끝없이 쓴다. 실제로 한 요청이 90초를 넘겼다.
+        "reason":      {"type": "string", "maxLength": 150},
     },
     "required": ["correctness", "relevance", "fluency", "reason"],
 }
@@ -348,7 +350,8 @@ def judge(question, reference, prediction):
             question=question, reference=reference, prediction=prediction)}],
         response_format={"type": "json_schema",
                          "json_schema": {"name": "score", "schema": SCHEMA}},
-        temperature=0.0,     # 채점은 재현 가능해야 한다
+        temperature=0.0,   # 채점은 재현 가능해야 한다
+        max_tokens=200,    # ★ 안전장치. 스키마만 믿으면 안 된다
     )
     return json.loads(r.choices[0].message.content)
 """)
