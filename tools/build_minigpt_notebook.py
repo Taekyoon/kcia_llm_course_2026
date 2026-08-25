@@ -384,8 +384,20 @@ from transformers.modeling_outputs import CausalLMOutput
 class MiniGPTConfig(PretrainedConfig):
     model_type = "minigpt"
 
+    # transformers 내부는 표준 이름(num_hidden_layers, hidden_size ...)으로 config 를
+    # 조회한다. 우리는 GPT-2 식 짧은 이름을 쓰므로 둘을 이어준다.
+    # 이게 없으면 generate() 가 캐시를 준비하다가 이렇게 죽는다:
+    #   AttributeError: 'MiniGPTConfig' object has no attribute 'num_hidden_layers'
+    attribute_map = {
+        "hidden_size": "n_embd",
+        "max_position_embeddings": "n_positions",
+        "num_attention_heads": "n_head",
+        "num_hidden_layers": "n_layer",
+    }
+
     def __init__(self, vocab_size=5000, n_positions=128, n_embd=256,
-                 n_layer=2, n_head=4, ff_dim=1024, dropout=0.1, **kw):
+                 n_layer=2, n_head=4, ff_dim=1024, dropout=0.1,
+                 use_cache=False, **kw):
         self.vocab_size = vocab_size
         self.n_positions = n_positions
         self.n_embd = n_embd
@@ -393,6 +405,9 @@ class MiniGPTConfig(PretrainedConfig):
         self.n_head = n_head
         self.ff_dim = ff_dim
         self.dropout = dropout
+        # KV 캐시를 구현하지 않았다(매번 전체 시퀀스를 다시 계산한다).
+        # 실습용 소형 모델이라 속도 차이가 크지 않고, 코드가 훨씬 단순해진다.
+        self.use_cache = use_cache
         super().__init__(**kw)
 
 
@@ -409,6 +424,17 @@ class MiniGPT(PreTrainedModel, GenerationMixin):
         self.ln_f    = nn.LayerNorm(cfg.n_embd)
         self.head    = nn.Linear(cfg.n_embd, cfg.vocab_size, bias=False)
         self.post_init()
+
+    def _init_weights(self, module):
+        # 밑바닥부터 학습하는 모델이라 초기화가 실제로 중요하다.
+        # 너무 크면 발산하고 너무 작으면 학습이 안 된다. GPT-2 가 쓴 표준편차 0.02 를 따른다.
+        if isinstance(module, (nn.Linear, nn.Embedding)):
+            module.weight.data.normal_(mean=0.0, std=0.02)
+            if isinstance(module, nn.Linear) and module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, nn.LayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
 
     def forward(self, input_ids=None, attention_mask=None, labels=None, **kw):
         B, T = input_ids.shape
@@ -530,8 +556,10 @@ device = next(model.parameters()).device
 prompt = torch.tensor([[tokenizer.bos_token_id]], device=device)
 
 def show(title, explain, **kw):
+    # use_cache=False: KV 캐시를 구현하지 않았으므로 매번 전체를 다시 계산한다.
     out = model.generate(prompt, max_new_tokens=80,
-                         pad_token_id=tokenizer.pad_token_id, **kw)
+                         pad_token_id=tokenizer.pad_token_id,
+                         use_cache=False, **kw)
     print("=" * 68)
     print(f"[{title}] {explain}")
     print("=" * 68)
