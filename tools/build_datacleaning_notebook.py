@@ -75,8 +75,10 @@ import hashlib
 import random
 import re
 import unicodedata
+import zlib
 from collections import Counter, defaultdict
 
+import numpy as np
 from datasets import load_dataset
 
 random.seed(42)
@@ -93,7 +95,7 @@ md("""
 """)
 
 code("""
-N_DOCS = 20000
+N_DOCS = 5000   # 실습용. 근사 중복 탐지는 문서 수의 제곱에 가깝게 무거워진다
 
 raw = load_dataset("wikimedia/wikipedia", "20231101.ko", split=f"train[:{N_DOCS}]")
 docs = [{"id": r["id"], "title": r["title"], "text": r["text"]} for r in raw]
@@ -197,30 +199,44 @@ J(A, B) = |A ∩ B| / |A ∪ B|
 
 여기에 **LSH(밴딩)** 를 더하면 비교 자체를 줄일 수 있습니다.
 시그니처를 여러 밴드로 쪼개서, **한 밴드라도 완전히 같은 문서끼리만** 후보로 봅니다.
+
+> **구현 메모 두 가지**
+>
+> - 문서 **앞 1,500자만** 봅니다. 근사 중복은 앞부분만 봐도 대개 판별되고,
+>   전체를 쓰면 긴 문서에서 비용이 급격히 늘어납니다. 실무 도구들도 같은 방식을 씁니다.
+> - 계산을 **numpy 로 벡터화**했습니다. 파이썬 이중 루프로 짜면 문서 수천 개에서
+>   수십 분이 걸립니다. 실제로 그렇게 만들었다가 다시 짰습니다.
 """)
 
 code("""
-SHINGLE = 5     # 5글자씩 끊는다. 한국어는 글자당 정보량이 커서 영어보다 짧게 잡는다
-NUM_HASH = 64   # 시그니처 길이
-BANDS = 16      # 밴드 수 (밴드당 64/16 = 4개)
+SHINGLE   = 5      # 5글자씩 끊는다. 한국어는 글자당 정보량이 커서 영어보다 짧게 잡는다
+NUM_HASH  = 64     # 시그니처 길이
+BANDS     = 16     # 밴드 수 (밴드당 64/16 = 4개)
+MAX_CHARS = 1500   # 앞부분만 본다 (아래 설명)
 
-MOD = (1 << 61) - 1   # 큰 소수
-HASHES = [(random.randrange(1, MOD), random.randrange(0, MOD)) for _ in range(NUM_HASH)]
+# 2^31-1 은 소수다. int64 안에서 a*s 가 넘치지 않는 크기라 numpy 로 다루기 좋다.
+MOD = (1 << 31) - 1
+rng = np.random.default_rng(42)
+A = rng.integers(1, MOD, size=NUM_HASH, dtype=np.int64)
+B = rng.integers(0, MOD, size=NUM_HASH, dtype=np.int64)
 
 
-def shingles(text: str) -> set[int]:
-    t = normalize(text)
+def shingles(text: str) -> np.ndarray:
+    # crc32 를 쓴다. 파이썬 내장 hash() 는 프로세스마다 값이 달라져 재현이 안 된다.
+    t = normalize(text)[:MAX_CHARS]
     if len(t) < SHINGLE:
-        return set()
-    # 조각을 그대로 들고 있으면 메모리를 많이 쓴다. 해시로 바꿔 저장한다.
-    return {hash(t[i:i + SHINGLE]) & 0xFFFFFFFF for i in range(len(t) - SHINGLE + 1)}
+        return np.empty(0, dtype=np.int64)
+    hs = {zlib.crc32(t[i:i + SHINGLE].encode()) & 0x7FFFFFFF
+          for i in range(len(t) - SHINGLE + 1)}
+    return np.fromiter(hs, dtype=np.int64, count=len(hs))
 
 
-def minhash(sh: set[int]) -> tuple[int, ...]:
-    if not sh:
-        return tuple([0] * NUM_HASH)
-    # 각 해시 함수마다 최솟값 하나씩
-    return tuple(min((a * s + b) % MOD for s in sh) for a, b in HASHES)
+def minhash(sh: np.ndarray) -> np.ndarray:
+    # 해시 함수 64개 × shingle 전체를 한 번에 계산한다.
+    # 파이썬 이중 루프로 짜면 문서 수천 개에서 수십 분이 걸린다.
+    if sh.size == 0:
+        return np.zeros(NUM_HASH, dtype=np.int64)
+    return ((A[:, None] * sh[None, :] + B[:, None]) % MOD).min(axis=1)
 """)
 
 code("""
@@ -230,10 +246,11 @@ B = "고양이는 포유류에 속하는 동물이다. 집에서 기르는 일�
 C = "맥스웰 방정식은 전자기 현상을 기술하는 네 개의 편미분 방정식이다."  # 다름
 
 def jaccard(x, y):
-    return len(x & y) / len(x | y) if (x | y) else 0.0
+    sx, sy = set(x.tolist()), set(y.tolist())
+    return len(sx & sy) / len(sx | sy) if (sx | sy) else 0.0
 
 def sig_sim(x, y):
-    return sum(1 for i, j in zip(x, y) if i == j) / NUM_HASH
+    return float((x == y).mean())
 
 for name, other in [("B(거의 같음)", B), ("C(다름)", C)]:
     sa, so = shingles(A), shingles(other)
@@ -244,15 +261,22 @@ for name, other in [("B(거의 같음)", B), ("C(다름)", C)]:
 """)
 
 code("""
+# 시그니처를 만든다. numpy 로 벡터화해서 문서 수천 개도 몇십 초면 끝난다.
+import time
+t0 = time.time()
+sigs = [minhash(shingles(d["text"])) for d in exact_dedup]
+print(f"시그니처 {len(sigs):,}개 생성 — {time.time()-t0:.1f}초")
+print(f"문서 하나가 {NUM_HASH}개 숫자로 압축됐다 (원본 길이와 무관하게 고정)")
+""")
+
+code("""
 # LSH 밴딩: 한 밴드라도 완전히 같으면 후보로 본다.
 ROWS = NUM_HASH // BANDS
-
-sigs = [minhash(shingles(d["text"])) for d in exact_dedup]
 
 buckets = defaultdict(list)
 for idx, sig in enumerate(sigs):
     for b in range(BANDS):
-        band = sig[b * ROWS:(b + 1) * ROWS]
+        band = tuple(sig[b * ROWS:(b + 1) * ROWS].tolist())
         buckets[(b, band)].append(idx)
 
 candidates = set()
