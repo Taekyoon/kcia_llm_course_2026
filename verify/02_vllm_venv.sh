@@ -81,7 +81,16 @@ cat <<EOF
 서버 기동 (이 터미널에서 계속 진행)
 
   source $VENV/bin/activate
-  nohup vllm serve $MODEL --port $PORT > /tmp/vllm.log 2>&1 &
+  nohup vllm serve $MODEL --port $PORT \\
+      --gpu-memory-utilization 0.80 \\
+      --max-model-len 16384 \\
+      > /tmp/vllm.log 2>&1 &
+
+  ★ 두 플래그를 생략하면 실패합니다 (2026-08-25 실측):
+      ValueError: Free memory on device cuda:0 (40.2/44.39 GiB) on startup
+      is less than desired GPU memory utilization (0.92, 40.84 GiB)
+    Jupyter 커널이 3~4GB 만 잡고 있어도 기본값 0.92 로는 못 뜹니다.
+    그리고 이 모델의 기본 컨텍스트가 262,144 토큰이라 KV 캐시가 과도합니다.
 
 기동 확인 — 모델 다운로드(약 8GB) 때문에 처음엔 3~6분 걸립니다:
 

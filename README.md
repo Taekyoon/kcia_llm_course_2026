@@ -114,12 +114,38 @@ Python 3.13.9 · CUDA 13.0 · torch 2.9.1+cu130
 GPU    NVIDIA L40S 44.4GB (sm_89, Ada)
 ```
 
-**주의할 점 두 가지:**
+**주의할 점 세 가지:**
 
 1. **vLLM 을 기본 커널에 설치하면 안 됩니다.** `torch==2.13.0` 을 등호로 하드핀해서
    torch 가 통째로 교체됩니다. `setup_vessl.sh` 가 별도 venv 로 격리합니다.
 2. **vLLM 은 cu130 휠을 배포하지 않습니다.** cu129 빌드를 쓰며, pip 휠이 가져오는
    `nvidia-*-cu12` 런타임과 드라이버 하위 호환에 의존합니다.
+   → **실측 결과 정상 동작합니다.** 모델 로딩·NCCL 초기화까지 문제없었습니다.
+3. **서빙 시 `--gpu-memory-utilization 0.80 --max-model-len 16384` 를 반드시 붙이세요.**
+
+### 서빙 실행
+
+```bash
+source /opt/vllm-env/bin/activate
+nohup vllm serve Qwen/Qwen3-4B-Instruct-2507 --port 8000 \
+    --gpu-memory-utilization 0.80 \
+    --max-model-len 16384 \
+    > /tmp/vllm.log 2>&1 &
+
+tail -f /tmp/vllm.log     # "Application startup complete" 대기
+```
+
+두 플래그가 필요한 이유 (2026-08-25 실측):
+
+- **`--gpu-memory-utilization 0.80`** — 기본값 0.92 는 GPU 의 92% 를 미리 확보합니다.
+  그런데 실습에서는 학생이 **노트북을 띄워둔 채** 서빙을 씁니다. Jupyter 커널이
+  3~4GB 만 잡고 있어도 이렇게 실패합니다:
+  ```
+  ValueError: Free memory on device cuda:0 (40.2/44.39 GiB) on startup
+  is less than desired GPU memory utilization (0.92, 40.84 GiB)
+  ```
+- **`--max-model-len 16384`** — 이 모델의 기본 컨텍스트는 **262,144 토큰**입니다.
+  그만큼 KV 캐시를 잡으려 해서 메모리를 크게 낭비합니다. 실습에는 16K 로 충분합니다.
 
 ---
 

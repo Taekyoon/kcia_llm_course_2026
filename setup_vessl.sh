@@ -122,8 +122,26 @@ cat <<EOF
 --- 서빙 실습(퓨샷 · Amazon 요약 · BM25 RAG)을 하려면 ---
 
   source $VLLM_VENV/bin/activate
-  nohup vllm serve $SERVE_MODEL --port 8000 > /tmp/vllm.log 2>&1 &
+  nohup vllm serve $SERVE_MODEL --port 8000 \\
+      --gpu-memory-utilization 0.80 \\
+      --max-model-len 16384 \\
+      > /tmp/vllm.log 2>&1 &
   tail -f /tmp/vllm.log        # "Application startup complete" 대기 (3~6분)
+
+  ★ 두 플래그는 생략하지 마세요. 이유가 있습니다(2026-08-25 실측).
+
+    --gpu-memory-utilization 0.80
+      기본값 0.92 는 GPU 의 92% 를 미리 확보하려 한다. 그런데 실습에서는
+      학생이 노트북을 띄워둔 채 서빙을 쓴다. Jupyter 커널이 3~4GB 만 잡고
+      있어도 다음과 같이 실패한다:
+        ValueError: Free memory on device cuda:0 (40.2/44.39 GiB) on startup
+        is less than desired GPU memory utilization (0.92, 40.84 GiB)
+      0.80 이면 vLLM 이 약 35GB 를 쓰고 노트북 몫으로 9GB 가 남는다.
+
+    --max-model-len 16384
+      Qwen3-4B-Instruct-2507 의 기본 컨텍스트는 262,144 토큰이다.
+      그만큼의 KV 캐시를 잡으려 해서 메모리를 크게 낭비한다.
+      강의 실습에는 16K 로 충분하고 기동도 빨라진다.
 
   노트북은 기본 커널에서 그대로 실행합니다. HTTP 로 붙으므로 venv 를 오갈 필요 없습니다.
 
