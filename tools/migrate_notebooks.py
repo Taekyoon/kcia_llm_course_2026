@@ -454,6 +454,53 @@ MIGRATIONS: list[Migration] = [
              ")",
              "SubQuestionQueryEngine 이 OpenAI 전용 생성기를 요구 → 범용 LLMQuestionGenerator "
              "직접 전달. 해당 패키지는 core 를 다운그레이드시켜 쓸 수 없다 (실행 검증에서 확인)"),
+        Rule(29,
+             "print(sub_query_prompts['question_gen:question_gen_prompt'].template)",
+             "# 기본 프롬프트를 먼저 본다. 영어이고 예시도 Uber/Lyft 재무제표다.\n"
+             "print(sub_query_prompts['question_gen:question_gen_prompt'].template)\n\n"
+             "# ⚠️ 이대로 두면 한국어 질의가 영어 서브질문으로 바뀐다.\n"
+             "#    실제로 \"맥스웰 방정식이 무엇인가요?\" 가 \"What is Maxwell's equation?\" 이 됐다.\n"
+             "#    BM25 는 어휘를 그대로 매칭하는 검색이라, 영어로 물으면 한국어 위키에서\n"
+             "#    아무것도 못 찾고 엉뚱한 문서를 가져온다.\n"
+             "#    refine_template 을 바꿨던 것과 같은 방식으로 이것도 한국어로 바꾼다.\n"
+             "from llama_index.core import PromptTemplate\n\n"
+             "KO_QUESTION_GEN = \"\"\"사용자 질문과 도구 목록이 주어집니다.\n"
+             "전체 질문에 답하는 데 필요한 하위 질문들을 JSON 으로 출력하세요.\n"
+             "**하위 질문은 반드시 한국어로 작성하세요.**\n\n"
+             "# 예시\n"
+             "<도구>\n"
+             "```json\n"
+             "{{\n"
+             '    "wiki_2020": "2020년 위키백과 문서를 제공한다",\n'
+             '    "wiki_2021": "2021년 위키백과 문서를 제공한다"\n'
+             "}}\n"
+             "```\n\n"
+             "<사용자 질문>\n"
+             "2020년과 2021년의 인구 변화를 비교해줘\n\n"
+             "<출력>\n"
+             "```json\n"
+             "{{\n"
+             '    "items": [\n'
+             '        {{"sub_question": "2020년 인구는 얼마인가", "tool_name": "wiki_2020"}},\n'
+             '        {{"sub_question": "2021년 인구는 얼마인가", "tool_name": "wiki_2021"}}\n'
+             "    ]\n"
+             "}}\n"
+             "```\n\n"
+             "# 실제 질문\n"
+             "<도구>\n"
+             "```json\n"
+             "{tools_str}\n"
+             "```\n\n"
+             "<사용자 질문>\n"
+             "{query_str}\n\n"
+             "<출력>\n"
+             "\"\"\"\n\n"
+             "sub_query_engine.update_prompts(\n"
+             '    {"question_gen:question_gen_prompt": PromptTemplate(KO_QUESTION_GEN)}\n'
+             ")\n"
+             "print(sub_query_engine.get_prompts()['question_gen:question_gen_prompt'].get_template()[:200])",
+             "서브질문이 영어로 생성돼 BM25 한국어 검색이 실패한다 → 질문 생성 프롬프트도 "
+             "한국어로 교체 (실행 검증에서 확인)"),
         Rule(22,
              "print(prompts['response_synthesizer:refine_template'].default_template.template)",
              "# 반영됐는지 엔진에서 다시 읽어 확인한다.\n"
