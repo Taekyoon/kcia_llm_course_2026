@@ -287,7 +287,9 @@ MIGRATIONS: list[Migration] = [
         Rule(4, "pip install openai vllm datasets==3.5.1",
              "# vLLM 은 별도 venv 에서 서버로 띄운다 (verify/02_vllm_venv.sh 참조).\n"
              "# 이 노트북은 HTTP 로 붙기만 하므로 openai 클라이언트만 있으면 된다.\n"
-             "%pip install -q -U openai datasets", WHY_PIP),
+             "# openai 는 3.x 로 올리지 않는다. llama-index-llms-openai 가 openai<3 을\n"
+             "# 요구해서, 3일차 RAG 실습과 같은 환경을 쓰려면 2.x 여야 한다.\n"
+             "%pip install -q -U 'openai<3' datasets", WHY_PIP),
         # 주의: 전역 규칙이 먼저 돌아 모델 ID가 이미 교체된 상태다. old 는 교체 후 문자열을 쓴다.
         Rule(6,
              f"! nohup python -m vllm.entrypoints.openai.api_server --model {SERVE_LM} &",
@@ -319,7 +321,8 @@ MIGRATIONS: list[Migration] = [
     Migration("3일차/HPC_Amazon요약실습.ipynb", [
         Rule(2, "pip install openai vllm datasets==3.5.1",
              "# vLLM 은 별도 venv 에서 서버로 띄운다 (verify/02_vllm_venv.sh 참조).\n"
-             "%pip install -q -U openai datasets pydantic", WHY_PIP),
+             "# openai<3 : llama-index-llms-openai 가 openai<3 을 요구한다(3일차와 같은 환경)\n"
+             "%pip install -q -U 'openai<3' datasets pydantic", WHY_PIP),
         # 셀 5 (Taekyoon/test_amazon) 는 손대지 않는다.
         # HF 에 라이선스 표기가 없어 F-1 에서 교체 대상으로 올렸으나,
         # 강사 본인 계정의 데이터셋이라 이용 권한 판단은 소유자 몫이다.

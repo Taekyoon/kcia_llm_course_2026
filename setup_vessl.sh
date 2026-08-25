@@ -34,9 +34,31 @@ nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader | 
 
 # torch 를 pip 의존성 해결에 맡기지 않는다. 이 한 줄이 핵심이다.
 TORCH_VER=$(python -c "import torch; print(torch.__version__.split('+')[0])")
-echo "torch==${TORCH_VER}" > "$CONSTRAINTS"
+{
+  echo "torch==${TORCH_VER}"
+  # openai 3.x 는 llama-index-llms-openai 가 요구하는 openai<3 과 충돌한다.
+  # 노트북이 쓰는 기능(OpenAI 클라이언트, response_format, structured outputs)은
+  # 2.x 에서 이미 검증됐다(verify/05_vllm검증.py 통과 당시 openai 2.54.0).
+  echo "openai<3"
+} > "$CONSTRAINTS"
 echo
-echo "  torch 를 constraints 로 고정: torch==${TORCH_VER}"
+echo "  constraints 고정:"
+sed 's/^/    /' "$CONSTRAINTS"
+
+# ── 구버전 핀 패키지 정리 (설치보다 먼저) ──────────────────────────────
+# llama-index-question-gen-openai 는 혼자 오지 않는다. agent-openai, program-openai
+# 같은 형제들을 함께 끌고 오는데 전부 llama-index-core<0.13 에 묶여 있다.
+# 남겨두면 이후 모든 pip 호출이 충돌을 보고한다. 여기서 먼저 걷어낸다.
+LEGACY="llama-index-question-gen-openai llama-index-agent-openai llama-index-program-openai"
+removed=0
+for p in $LEGACY; do
+  if pip show "$p" >/dev/null 2>&1; then
+    echo "  구버전 핀 패키지 제거: $p"
+    pip uninstall -q -y "$p"
+    removed=1
+  fi
+done
+[ "$removed" = "0" ] && echo "  구버전 핀 패키지: 없음"
 
 echo
 echo "======================================================================"
@@ -63,18 +85,7 @@ echo "======================================================================"
 #    권하지만, 최신판(0.3.1)이 llama-index-core<0.13 에 묶여 있어 설치하는 순간
 #    core 가 0.14.24 -> 0.12.52 로 끌려 내려가고 llama-index 전체가 깨진다.
 #    노트북에서 LLMQuestionGenerator 를 직접 넘기는 방식으로 우회했다.
-#
-# 그 패키지는 혼자 오지 않는다. llama-index-agent-openai, llama-index-program-openai
-# 같은 구버전 핀 형제들을 함께 끌고 온다. core 만 되돌려도 이들이 남아
-# pip 이 계속 충돌을 보고한다. 먼저 걷어낸다.
-LEGACY="llama-index-question-gen-openai llama-index-agent-openai llama-index-program-openai"
-for p in $LEGACY; do
-  if pip show "$p" >/dev/null 2>&1; then
-    echo "  구버전 핀 패키지 제거: $p"
-    pip uninstall -q -y "$p"
-  fi
-done
-
+#    (구버전 형제 패키지 제거는 1단계에서 이미 처리했다)
 pip install -q -c "$CONSTRAINTS" -U \
     llama-index llama-index-core llama-index-retrievers-bm25 \
     llama-index-llms-openai-like PyStemmer
@@ -89,6 +100,9 @@ MIN = {                       # 이보다 낮으면 구버전 핀 패키지에 �
     "llama-index-core": (0, 14),
     "llama-index-llms-openai-like": (0, 7),   # 0.4.x 는 transformers<5 를 요구한다
 }
+MAX = {                       # 이보다 높으면 다른 쪽과 충돌한다
+    "openai": (3, 0),         # llama-index-llms-openai 가 openai<3 을 요구한다
+}
 bad = []
 for pkg, want in MIN.items():
     try:
@@ -100,6 +114,17 @@ for pkg, want in MIN.items():
     mark = "" if got >= want else f"  ★ {'.'.join(map(str, want))} 이상 필요"
     print(f"    {pkg:<32} {v}{mark}")
     if got < want:
+        bad.append(pkg)
+
+for pkg, limit in MAX.items():
+    try:
+        v = version(pkg)
+    except PackageNotFoundError:
+        continue
+    got = tuple(int(x) for x in v.split(".")[:2])
+    mark = "" if got < limit else f"  ★ {'.'.join(map(str, limit))} 미만이어야 함"
+    print(f"    {pkg:<32} {v}{mark}")
+    if got >= limit:
         bad.append(pkg)
 
 if bad:
@@ -126,12 +151,28 @@ echo "  설치된 버전:"
 python - <<'PY'
 from importlib.metadata import version
 for p in ["transformers","datasets","trl","peft","accelerate","evaluate",
-          "huggingface_hub","seqeval","llama-index-core"]:
+          "huggingface_hub","seqeval","llama-index-core","openai"]:
     try:
         print(f"    {p:<24} {version(p)}")
     except Exception:
         print(f"    {p:<24} -")
 PY
+
+echo
+echo "  최종 의존성 검사 (pip check):"
+if pip check > /tmp/pipcheck.txt 2>&1; then
+  echo "    충돌 없음"
+else
+  # conda CLI 도구(anaconda-cli-base <-> click)는 실습과 무관하므로 걸러낸다
+  grep -v "anaconda-cli-base" /tmp/pipcheck.txt | sed 's/^/    /' || true
+  if grep -qv "anaconda-cli-base" /tmp/pipcheck.txt; then
+    echo
+    echo "    ※ 위 충돌이 llama-index 관련이면 아래로 복구하세요:"
+    echo "       pip uninstall -y llama-index-question-gen-openai \\"
+    echo "           llama-index-agent-openai llama-index-program-openai"
+    echo "       bash setup_vessl.sh"
+  fi
+fi
 
 echo
 echo "======================================================================"
