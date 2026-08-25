@@ -12,8 +12,8 @@ VESSL 워크스페이스에서 clone 해서 바로 돌리는 것을 전제로 �
 ## 빠른 시작
 
 ```bash
-git clone <이 repo>
-cd 26년강의
+git clone https://github.com/Taekyoon/kcia_llm_course_2026.git
+cd kcia_llm_course_2026
 bash setup_vessl.sh
 ```
 
