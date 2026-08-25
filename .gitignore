@@ -1,0 +1,49 @@
+# =====================================================================
+# 이 repo 는 VESSL 에서 실습을 돌리기 위한 것이다.
+# 강의 저작물과 발주처 문서는 **의도적으로 제외**한다.
+# private repo 라도 굳이 올릴 이유가 없고, 실수로 공개 전환될 여지를 줄인다.
+# =====================================================================
+
+# --- 발주처 문서 · 강의 저작물 (절대 커밋하지 않음) ---
+*.hwp
+*.hwpx
+ppt/
+work/ppt/
+
+# --- 내부 검토 산출물 (로컬 보관) ---
+review/
+extracted/
+
+# Claude 작업 규칙. review/ · extracted/ 를 참조하는데 그 둘이 여기 없어서 제외한다.
+# 로컬에서만 쓴다. repo 에도 두고 싶으면 이 줄을 지우면 된다.
+CLAUDE.md
+
+# --- 도구 출력 · 캐시 ---
+tools/.venv/
+.venv/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.uv/
+
+# --- 실습 실행 중 생기는 것 ---
+data/
+model/
+outputs/
+runs/
+*.log
+nsmc_classifier/
+ner_seq_classifier/
+bm25_retriever/
+amazon_gpt_summary.csv
+wandb/
+
+# --- OS · 편집기 ---
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# --- Claude 작업 파일 ---
+.claude/settings.local.json

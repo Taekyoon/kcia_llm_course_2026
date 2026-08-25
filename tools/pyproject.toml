@@ -1,0 +1,12 @@
+[project]
+name = "hpc-lecture-tools"
+version = "0.1.0"
+description = "26년 HPC 강의자료 추출 도구 (HWP / PPTX / IPYNB → 마크다운)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "python-pptx>=1.0.2",
+    "olefile>=0.47",
+]
+
+[tool.uv]
+package = false

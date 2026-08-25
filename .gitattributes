@@ -1,0 +1,29 @@
+# =====================================================================
+# 이 repo 는 Windows 에서 작성하고 Linux(VESSL) 에서 실행한다.
+# 줄바꿈을 강제하지 않으면 .sh 가 CRLF 로 체크아웃되어 Linux 에서 깨진다:
+#     bash: ./setup_vessl.sh: /usr/bin/env: bad interpreter: No such file or directory
+# =====================================================================
+
+# 기본: 텍스트 파일은 저장소에 LF 로 보관
+* text=auto eol=lf
+
+# 실행 대상 — 반드시 LF
+*.sh   text eol=lf
+*.py   text eol=lf
+
+# 노트북은 JSON. 병합 충돌을 줄이기 위해 diff 를 텍스트로 다룬다
+*.ipynb text eol=lf
+
+# 확장자 없는 원본 노트북(내용은 ipynb JSON)
+notebook/**/HPC_* text eol=lf
+
+*.md   text eol=lf
+*.toml text eol=lf
+*.lock text eol=lf
+
+# 바이너리 — 변환하지 않음
+*.pptx binary
+*.hwp  binary
+*.png  binary
+*.jpg  binary
+*.parquet binary
