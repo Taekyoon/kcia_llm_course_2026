@@ -58,12 +58,34 @@ echo " 3. RAG 스택 설치 (3일차 실습)"
 echo "======================================================================"
 # llama-index-llms-vllm(in-process) 대신 openai-like 를 쓴다.
 # in-process 로 띄우면 이 커널의 torch 와 충돌한다.
+# ⚠️ llama-index-question-gen-openai 를 설치하지 마세요.
+#    SubQuestionQueryEngine.from_defaults() 가 없으면 ImportError 를 내며 이 패키지를
+#    권하지만, 최신판(0.3.1)이 llama-index-core<0.13 에 묶여 있어 설치하는 순간
+#    core 가 0.14.24 -> 0.12.52 로 끌려 내려가고 llama-index 전체가 깨진다.
+#    노트북에서 LLMQuestionGenerator 를 직접 넘기는 방식으로 우회했다.
 pip install -q -c "$CONSTRAINTS" -U \
-    llama-index-core llama-index-retrievers-bm25 llama-index-llms-openai-like \
-    llama-index-question-gen-openai PyStemmer
-# llama-index-question-gen-openai : SubQuestionQueryEngine.from_defaults() 가 요구한다.
-#   없으면 ImportError 로 죽는다. 이름과 달리 OpenAI API 를 호출하지는 않는다
-#   (Settings.llm 으로 지정한 로컬 vLLM 을 쓴다).
+    llama-index llama-index-core llama-index-retrievers-bm25 \
+    llama-index-llms-openai-like PyStemmer
+
+echo
+echo "  llama-index 정합성 확인:"
+python - <<'PY'
+from importlib.metadata import version
+try:
+    core = version("llama-index-core")
+    major_minor = tuple(int(x) for x in core.split(".")[:2])
+    print(f"    llama-index-core {core}")
+    if major_minor < (0, 14):
+        raise SystemExit(
+            f"\n    ★ core 가 {core} 로 낮습니다. llama-index-question-gen-openai 같은\n"
+            "      구버전 핀 패키지가 설치돼 끌어내렸을 수 있습니다. 복구하세요:\n"
+            "        pip uninstall -y llama-index-question-gen-openai\n"
+            "        pip install -U 'llama-index-core>=0.14' llama-index\n"
+        )
+except Exception as e:
+    print(f"    확인 실패: {e}")
+    raise
+PY
 
 echo
 echo "======================================================================"

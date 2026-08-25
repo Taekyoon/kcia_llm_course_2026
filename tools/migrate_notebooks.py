@@ -368,10 +368,8 @@ MIGRATIONS: list[Migration] = [
              "# vLLM 은 별도 venv 에서 서버로 띄우고 여기서는 HTTP 로 붙는다.\n"
              "# llama-index-llms-vllm(in-process) 대신 openai-like 를 쓴다.\n"
              "# 주의: %pip 매직에서 백슬래시 줄바꿈은 불안정하다. 한 줄로 쓴다.\n"
-             "# llama-index-question-gen-openai 는 SubQuestionQueryEngine 이 요구한다.\n"
              "%pip install -q -U llama-index llama-index-retrievers-bm25 "
-             "llama-index-llms-openai-like llama-index-question-gen-openai "
-             "datasets PyStemmer matplotlib",
+             "llama-index-llms-openai-like datasets PyStemmer matplotlib",
              "in-process vLLM → HTTP 접속. torch 충돌 회피 (D-10)"),
         # 이 노트북에는 전역 규칙이 없으므로 old 는 원본 문자열 그대로다.
         Rule(4,
@@ -436,6 +434,23 @@ MIGRATIONS: list[Migration] = [
              '    {"response_synthesizer:refine_template": new_refine}\n'
              ')',
              "get_prompts() 직접 대입은 조용히 무시된다 → update_prompts() (D-3)"),
+        Rule(27,
+             "sub_query_engine = SubQuestionQueryEngine.from_defaults(\n"
+             "    query_engine_tools=query_engine_tools,\n"
+             "    use_async=True,\n"
+             ")",
+             "# SubQuestionQueryEngine 은 기본값으로 OpenAI 전용 질문 생성기를 찾는다.\n"
+             "# 없으면 ImportError 로 죽는데, 그 패키지(llama-index-question-gen-openai)는\n"
+             "# llama-index-core<0.13 에 묶여 있어 설치하면 core 가 0.12 로 끌려 내려간다.\n"
+             "# 대신 LLM 기반 범용 생성기를 직접 넘긴다. Settings.llm(로컬 vLLM)을 그대로 쓴다.\n"
+             "from llama_index.core.question_gen import LLMQuestionGenerator\n\n"
+             "sub_query_engine = SubQuestionQueryEngine.from_defaults(\n"
+             "    query_engine_tools=query_engine_tools,\n"
+             "    question_gen=LLMQuestionGenerator.from_defaults(llm=Settings.llm),\n"
+             "    use_async=True,\n"
+             ")",
+             "SubQuestionQueryEngine 이 OpenAI 전용 생성기를 요구 → 범용 LLMQuestionGenerator "
+             "직접 전달. 해당 패키지는 core 를 다운그레이드시켜 쓸 수 없다 (실행 검증에서 확인)"),
         Rule(22,
              "print(prompts['response_synthesizer:refine_template'].default_template.template)",
              "# 반영됐는지 엔진에서 다시 읽어 확인한다.\n"
