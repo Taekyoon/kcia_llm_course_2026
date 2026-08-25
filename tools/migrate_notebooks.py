@@ -321,8 +321,9 @@ MIGRATIONS: list[Migration] = [
              "%pip install llama-index-llms-vllm\n%pip install datasets\n%pip install vllm",
              "# vLLM 은 별도 venv 에서 서버로 띄우고 여기서는 HTTP 로 붙는다.\n"
              "# llama-index-llms-vllm(in-process) 대신 openai-like 를 쓴다.\n"
-             "%pip install -q -U llama-index llama-index-retrievers-bm25 \\\n"
-             "                   llama-index-llms-openai-like datasets PyStemmer",
+             "# 주의: %pip 매직에서 백슬래시 줄바꿈은 불안정하다. 한 줄로 쓴다.\n"
+             "%pip install -q -U llama-index llama-index-retrievers-bm25 "
+             "llama-index-llms-openai-like datasets PyStemmer",
              "in-process vLLM → HTTP 접속. torch 충돌 회피 (D-10)"),
         # 이 노트북에는 전역 규칙이 없으므로 old 는 원본 문자열 그대로다.
         Rule(4,
@@ -396,11 +397,17 @@ MIGRATIONS: list[Migration] = [
     ]),
 
     # =====================================================================
-    # MiniGPT — 코드 변경 없음.
-    # keras-hub API 는 전부 유효하고 keras_nlp 도 shim 으로 살아 있다(D-5).
-    # 문제는 노트북이 아니라 슬라이드 쪽이다(C-2, 1일차 p63·p69-90 구 API).
-    # 규칙이 없어도 work/ 로 통과 복사해 9종을 한 곳에 모아둔다.
-    Migration("1일차/HPC_MiniGPT실습.ipynb", []),
+    # MiniGPT 는 여기서 다루지 않는다.
+    #
+    # 원본은 9종 중 혼자만 Keras/TensorFlow 스택이었다. keras-hub API 자체는
+    # 유효했지만(D-5) tensorflow 2.20 과 nvidia-*-cu12 를 끌어와 기본 커널의
+    # torch cu130 과 충돌해 **별도 venv 가 필요**했고, 수강생은 나머지 8종에서
+    # 배운 도구를 여기서만 다시 배워야 했다.
+    #
+    # 그래서 문자열 치환이 아니라 **PyTorch/HF 스택으로 새로 작성**했다.
+    #   → tools/build_minigpt_notebook.py 가 유일한 생성원이다.
+    #
+    # 여기에 통과 복사 규칙을 두면 새로 만든 노트북을 원본으로 덮어쓴다.
 ]
 
 

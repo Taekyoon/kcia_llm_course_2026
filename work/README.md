@@ -4,16 +4,23 @@
 
 ## work/notebook/ 는 손으로 고치지 마세요
 
-이 폴더는 **`tools/migrate_notebooks.py` 가 원본에서 매번 새로 생성**합니다.
-직접 편집하면 다음 실행에서 덮어써집니다.
+이 폴더는 **스크립트가 매번 새로 생성**합니다. 직접 편집하면 덮어써집니다.
+노트북에 따라 생성원이 다릅니다.
+
+| 노트북 | 생성원 |
+|---|---|
+| 8종 (MiniGPT 제외) | `tools/migrate_notebooks.py` — 원본에서 규칙 기반 치환 |
+| **MiniGPT** | `tools/build_minigpt_notebook.py` — **새로 작성** (원본 변환 아님) |
 
 ```bash
-uv run python tools/migrate_notebooks.py            # 생성
-uv run python tools/migrate_notebooks.py --dry-run  # 미리보기
+uv run python tools/migrate_notebooks.py --dry-run   # 미리보기
+uv run python tools/migrate_notebooks.py             # 8종 생성
+uv run python tools/build_minigpt_notebook.py        # MiniGPT 생성
+uv run python tools/validate_notebooks.py            # 9종 정적 검사
 ```
 
-수정 내용을 바꾸려면 `tools/migrate_notebooks.py` 의 **규칙표**를 고치세요.
-규칙마다 변경 사유(`why`)가 붙어 있고 리포트에 그대로 출력됩니다.
+수정 내용을 바꾸려면 해당 스크립트를 고치세요.
+`migrate_notebooks.py` 는 규칙마다 변경 사유(`why`)가 붙어 있고 실행하면 그대로 출력됩니다.
 
 ### 왜 이렇게 만들었나
 
@@ -32,7 +39,7 @@ uv run python tools/migrate_notebooks.py --dry-run  # 미리보기
 |---|---:|---|
 | 1일차 Classification | 6 | 인코더 전환 · nsmc parquet · processing_class · 체크포인트 하드코딩 제거 |
 | 1일차 NER | 9 | 인코더 전환 · klue/klue ner · `.replace()` 버그 · test→validation |
-| 1일차 MiniGPT | 0 | **변경 없음** — keras-hub API 유효. 문제는 슬라이드 쪽 |
+| 1일차 MiniGPT | **전면 재작성** | Keras/TF → **PyTorch + HuggingFace**. 아래 참조 |
 | 2일차 SFT | 6 | kullm-v2 교체 · **`input` 컬럼 병합** · `max_seq_length`→`max_length` |
 | 2일차 DPO | 3 | pip 정리 · processing_class |
 | 2일차 GRPO | 4 | Qwen3 통일 · processing_class |
@@ -41,6 +48,39 @@ uv run python tools/migrate_notebooks.py --dry-run  # 미리보기
 | 3일차 BM25 RAG | 5 | OpenAILike HTTP · **wikimedia/wikipedia** · **update_prompts()** |
 
 상세 근거: [review/02_문제점.md](../review/02_문제점.md) · [verify/결과.md](../verify/결과.md)
+
+### MiniGPT 전면 재작성 (2026-08-25)
+
+원본은 9종 중 **혼자만 Keras/TensorFlow** 였습니다. keras-hub API 자체는 유효했지만:
+
+- `keras-hub` → `tensorflow-text` → `tensorflow 2.20` → `nvidia-*-cu12` 를 끌어와
+  기본 커널의 torch cu130 과 충돌 → **별도 venv 가 필요**했습니다
+- 수강생이 나머지 8종에서 배운 도구(transformers·datasets·Trainer)를
+  여기서만 다시 배워야 했습니다
+- 슬라이드도 어차피 재작성 대상이었습니다 (C-2: 1일차 p63·p69-90 이 구 `keras_nlp` API)
+
+**교육 목표는 그대로 유지**하고 스택만 바꿨습니다.
+
+| 항목 | 원본 (Keras) | 신규 (PyTorch/HF) |
+|---|---|---|
+| 토크나이저 | `compute_word_piece_vocabulary` | `tokenizers` **ByteLevel BPE** 직접 학습 |
+| BOS/EOS | `StartEndPacker` | `TemplateProcessing` post-processor |
+| 데이터 | `tf.data` 파이프라인 | `datasets` map/filter + 청킹 |
+| 모델 | `TransformerDecoder` 레이어 조립 | **`nn.Module` 로 직접 구현** |
+| 학습 | `model.compile/fit` | `Trainer` |
+| 생성 | `keras_hub.samplers` 5종 | `model.generate()` 플래그 5종 |
+| 데이터셋 | SimpleBooks (영어, S3 직링크) | `g0ster/TinyStories-Korean` (MIT) |
+
+**의도적으로 바꾼 것 두 가지:**
+
+- `NUM_HEADS` 3 → **4**. PyTorch 표준 구현은 `n_embd` 가 `n_head` 로 나누어떨어져야
+  합니다(256/3 은 안 됩니다). Keras `MultiHeadAttention` 은 `key_dim` 이 별도라 3이 가능했습니다.
+- WordPiece → **ByteLevel BPE**. 한국어는 음절 종류가 많아 사전 5,000 짜리 WordPiece 로는
+  `[UNK]` 가 대량 발생합니다. ByteLevel 은 UNK 가 원천적으로 없습니다.
+
+**Causal Self-Attention 을 직접 구현**하는 것이 핵심 변화입니다.
+1일차 p49-58 에서 배운 Self-Attention·Multi-head 가 코드로 바로 연결됩니다.
+`keras_hub.layers.TransformerDecoder` 한 줄로는 그 연결이 보이지 않았습니다.
 
 ---
 

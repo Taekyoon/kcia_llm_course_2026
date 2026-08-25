@@ -145,12 +145,10 @@ cat <<EOF
 
   노트북은 기본 커널에서 그대로 실행합니다. HTTP 로 붙으므로 venv 를 오갈 필요 없습니다.
 
---- MiniGPT 실습(1일차)은 별도 venv 를 권장합니다 ---
+--- MiniGPT 실습(1일차)도 이 커널에서 돌아갑니다 ---
 
-  keras-hub → tensorflow-text → tensorflow 2.20 → nvidia-*-cu12 를 끌어와
-  기본 커널의 cu130 과 섞일 수 있습니다.
-
-  python -m venv /opt/keras-env && source /opt/keras-env/bin/activate
-  pip install keras-hub        # tensorflow 를 명시하지 마세요. 짝이 자동으로 맞춰집니다
+  예전에는 Keras/TensorFlow 스택이라 별도 venv 가 필요했지만,
+  PyTorch + HuggingFace 로 재작성해서 이제 나머지 8종과 같은 환경을 씁니다.
+  추가 설치가 필요 없습니다.
 ======================================================================
 EOF

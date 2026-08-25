@@ -36,10 +36,11 @@ FAST=(
   "3일차/HPC_BM25_RAG실습.ipynb|900"
   "2일차/HPC_퓨샷실습.ipynb|1800"
 )
-# 학습계 — 오래 걸린다
+# 학습계 — 오래 걸린다. vLLM 서버 불필요
 SLOW=(
   "1일차/HPC_Classification실습.ipynb|1800"
   "1일차/HPC_NER실습.ipynb|1800"
+  "1일차/HPC_MiniGPT실습.ipynb|2400"
   "2일차/HPC_SFT실습.ipynb|2400"
   "2일차/HPC_DPO실습.ipynb|2400"
   "2일차/HPC_GRPO실습.ipynb|3000"
@@ -52,8 +53,16 @@ case "${1:-fast}" in
   amazon)  TARGETS=("3일차/HPC_Amazon요약실습.ipynb|1200") ;;
   rag)     TARGETS=("3일차/HPC_BM25_RAG실습.ipynb|900") ;;
   fewshot) TARGETS=("2일차/HPC_퓨샷실습.ipynb|1800") ;;
+  minigpt) TARGETS=("1일차/HPC_MiniGPT실습.ipynb|2400") ;;
   *)       TARGETS=("$1|1800") ;;
 esac
+
+# 실행 전에 정적 검사부터. GPU 를 붙잡기 전에 문법 오류를 걸러낸다.
+if command -v uv >/dev/null 2>&1 && [ -f tools/validate_notebooks.py ]; then
+  echo " 정적 검사..."
+  uv run python tools/validate_notebooks.py 2>&1 | tail -n 4 | sed 's/^/   /' || true
+  echo
+fi
 
 echo "======================================================================"
 echo " 노트북 실행 검증 — 대상 ${#TARGETS[@]}종"
