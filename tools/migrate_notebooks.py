@@ -274,16 +274,10 @@ MIGRATIONS: list[Migration] = [
         Rule(2, "pip install openai vllm datasets==3.5.1",
              "# vLLM 은 별도 venv 에서 서버로 띄운다 (verify/02_vllm_venv.sh 참조).\n"
              "%pip install -q -U openai datasets pydantic", WHY_PIP),
-        # 주의: new 가 old 를 포함하면 재실행마다 다시 적용돼 내용이 중복된다.
-        # 그래서 호출부를 변수로 바꿔 old 문자열이 남지 않게 한다.
-        Rule(5,
-             "data = load_dataset('Taekyoon/test_amazon', split='train[:10]')",
-             "# ⚠️ Taekyoon/test_amazon 은 라이선스가 표기돼 있지 않다.\n"
-             "#    라이선스 미표기는 '자유'가 아니라 '권리 미부여'라 상업 강의에 쓸 수 없다(F-1).\n"
-             "#    TODO: 자체 합성 상품 카탈로그로 교체할 것. 스키마는 {'text': str} 하나면 된다.\n"
-             "AMAZON_DATASET = 'Taekyoon/test_amazon'\n"
-             "data = load_dataset(AMAZON_DATASET, split='train[:10]')",
-             "라이선스 미표기 — 교체 대상 표시 (F-1). 대체 데이터 준비 후 이 셀을 바꾼다"),
+        # 셀 5 (Taekyoon/test_amazon) 는 손대지 않는다.
+        # HF 에 라이선스 표기가 없어 F-1 에서 교체 대상으로 올렸으나,
+        # 강사 본인 계정의 데이터셋이라 이용 권한 판단은 소유자 몫이다.
+        # 소유자가 리스크를 인지하고 현행 유지를 결정했다 (2026-08-25).
         # 주의: 전역 규칙이 먼저 돌아 모델 ID가 이미 교체된 상태다.
         Rule(9,
              f"! nohup python -m vllm.entrypoints.openai.api_server --model {SERVE_LM} &",
