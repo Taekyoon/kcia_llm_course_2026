@@ -46,7 +46,11 @@ echo "======================================================================"
 # attn_implementation="sdpa" (torch 내장) 로 대체 가능해 실습에 불필요하다.
 pip install -q -c "$CONSTRAINTS" -U \
     transformers datasets accelerate peft trl evaluate \
-    bitsandbytes math-verify seqeval openai
+    bitsandbytes math-verify seqeval openai \
+    tensorboard matplotlib ipywidgets
+# tensorboard : 노트북들이 report_to="tensorboard" 로 학습 로그를 남긴다
+# matplotlib  : llama-index 의 display_source_node 가 내부에서 import 한다
+# ipywidgets  : 없으면 진행바가 IProgress 경고와 함께 깨진다
 
 echo
 echo "======================================================================"

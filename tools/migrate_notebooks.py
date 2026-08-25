@@ -98,6 +98,11 @@ MIGRATIONS: list[Migration] = [
              f'# 배운 것과 실습이 어긋나 있었다.\n'
              f'tokenizer = AutoTokenizer.from_pretrained("{ENCODER}")',
              "decoder-only → 인코더 전환. 커리큘럼 ⑤ 항목과 실습 연결 (필-1c)"),
+        Rule(2,
+             "from transformers import DataCollatorWithPadding\n\nimport matplotlib.pyplot as plt",
+             "from transformers import DataCollatorWithPadding",
+             "matplotlib 은 import 만 하고 쓰지 않는다(plt. 사용 없음). "
+             "기본 환경에 없어 ModuleNotFoundError 로 죽는다"),
         Rule(8,
              'dataset = load_dataset("nsmc",  trust_remote_code=True)',
              '# datasets 5.x 는 로딩 스크립트를 지원하지 않는다.\n'
@@ -136,6 +141,10 @@ MIGRATIONS: list[Migration] = [
              f'# 분류 실습과 동일하게 인코더로 전환했다.\n'
              f'tokenizer = AutoTokenizer.from_pretrained("{ENCODER}")',
              "decoder-only → 인코더 전환 (필-1c)"),
+        Rule(2,
+             "from transformers import DataCollatorWithPadding\n\nimport matplotlib.pyplot as plt",
+             "from transformers import DataCollatorWithPadding",
+             "matplotlib 은 import 만 하고 쓰지 않는다. 기본 환경에 없어 죽는다"),
         Rule(8,
              'dataset = load_dataset("kor_ner")',
              '# kor_ner 는 로딩 스크립트 방식이라 datasets 5.x 에서 읽지 못한다.\n'
@@ -208,6 +217,8 @@ MIGRATIONS: list[Migration] = [
         Rule(20, "    max_seq_length=tokenizer.model_max_length,",
              "    max_length=tokenizer.model_max_length,",
              "TRL: SFTConfig.max_seq_length → max_length 개명 (D-4 실측 확정)"),
+        Rule(20, "    overwrite_output_dir=True,\n", "",
+             "transformers 5 에서 overwrite_output_dir 제거됨 → TypeError (실행 검증에서 확인)"),
         Rule(23, "trainer.tokenizer.save_pretrained(output_dir)",
              "trainer.processing_class.save_pretrained(output_dir)", WHY_TOKATTR),
     ]),
@@ -217,6 +228,8 @@ MIGRATIONS: list[Migration] = [
         Rule(2, "!pip install -q transformers[torch] datasets==3.5.1",
              "%pip install -q -U transformers datasets accelerate", WHY_PIP),
         Rule(3, "!pip install -q trl peft", "%pip install -q -U trl peft", WHY_PIP),
+        Rule(15, "    overwrite_output_dir=True,\n", "",
+             "transformers 5 에서 overwrite_output_dir 제거됨 → TypeError (실행 검증에서 확인)"),
         Rule(18, "trainer.tokenizer.save_pretrained(output_dir)",
              "trainer.processing_class.save_pretrained(output_dir)", WHY_TOKATTR),
     ]),
@@ -232,6 +245,8 @@ MIGRATIONS: list[Migration] = [
              f'# Qwen3 로 통일한다.\n'
              f'model_id = "{TRAIN_LM}"',
              "세대 혼재 제거 — Qwen2.5 → Qwen3 계열 통일 (필-1a)"),
+        Rule(18, "    max_prompt_length=128,\n", "",
+             "TRL 1.x 에서 GRPOConfig.max_prompt_length 제거됨 → TypeError (실행 검증에서 확인)"),
         Rule(21, "trainer.tokenizer.save_pretrained(output_dir)",
              "trainer.processing_class.save_pretrained(output_dir)", WHY_TOKATTR),
     ]),
