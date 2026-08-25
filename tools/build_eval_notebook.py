@@ -288,7 +288,24 @@ from openai import OpenAI
 
 BASE = "http://localhost:8000/v1"
 MODEL = "Qwen/Qwen3-4B-Instruct-2507"
-client = OpenAI(api_key="EMPTY", base_url=BASE)
+client = OpenAI(api_key="EMPTY", base_url=BASE, timeout=30.0)
+
+# 서버가 없으면 이 아래 셀들이 전부 깨진다. 먼저 확인하고 안내한다.
+try:
+    client.models.list()
+    JUDGE_OK = True
+    print(f"vLLM 서버 연결됨 — {MODEL}")
+except Exception as e:
+    JUDGE_OK = False
+    print(f"vLLM 서버에 붙지 못했습니다: {type(e).__name__}")
+    print()
+    print("  별도 터미널에서 서버를 띄우세요:")
+    print("    source /opt/vllm-env/bin/activate")
+    print("    nohup vllm serve Qwen/Qwen3-4B-Instruct-2507 --port 8000 \\\\")
+    print("        --gpu-memory-utilization 0.80 --max-model-len 16384 > /tmp/vllm.log 2>&1 &")
+    print()
+    print("  서버 없이도 앞의 BLEU/ROUGE 부분은 이미 확인했습니다.")
+    print("  아래 LLM-as-judge 셀들은 건너뜁니다.")
 
 JUDGE_PROMPT = \"\"\"당신은 한국어 QA 시스템의 답변을 채점합니다.
 
@@ -337,19 +354,22 @@ def judge(question, reference, prediction):
 """)
 
 code("""
-results = []
-for ex, p in zip(eval_set, predictions):
-    s = judge(ex["question"], ex["reference"], p)
-    results.append(s)
-    print(f"Q: {ex['question']}")
-    print(f"   응답: {p}")
-    print(f"   정확성 {s['correctness']}  관련성 {s['relevance']}  자연스러움 {s['fluency']}")
-    print(f"   사유: {s['reason']}")
-    print()
+if not JUDGE_OK:
+    print("서버가 없어 건너뜁니다.")
+else:
+    results = []
+    for ex, p in zip(eval_set, predictions):
+        s = judge(ex["question"], ex["reference"], p)
+        results.append(s)
+        print(f"Q: {ex['question']}")
+        print(f"   응답: {p}")
+        print(f"   정확성 {s['correctness']}  관련성 {s['relevance']}  자연스러움 {s['fluency']}")
+        print(f"   사유: {s['reason']}")
+        print()
 
-print("── 평균 ──")
-for k in ["correctness", "relevance", "fluency"]:
-    print(f"  {k:<14}{mean(r[k] for r in results):.2f}")
+    print("── 평균 ──")
+    for k in ["correctness", "relevance", "fluency"]:
+        print(f"  {k:<14}{mean(r[k] for r in results):.2f}")
 """)
 
 md("""
@@ -357,13 +377,16 @@ md("""
 """)
 
 code("""
-print(f"{'경우':<24}{'BLEU':>7}{'ROUGE-L':>9}{'정확성':>8}")
-print("-" * 50)
-for name, pred in cases:
-    b = bleu.compute(predictions=[pred], references=[[reference]])["score"]
-    r = rouge.compute(predictions=[pred], references=[reference])["rougeL"]
-    s = judge(question, reference, pred)
-    print(f"{name:<24}{b:>7.1f}{r:>9.3f}{s['correctness']:>8}")
+if not JUDGE_OK:
+    print("서버가 없어 건너뜁니다.")
+else:
+    print(f"{'경우':<24}{'BLEU':>7}{'ROUGE-L':>9}{'정확성':>8}")
+    print("-" * 50)
+    for name, pred in cases:
+        b = bleu.compute(predictions=[pred], references=[[reference]])["score"]
+        r = rouge.compute(predictions=[pred], references=[reference])["rougeL"]
+        s = judge(question, reference, pred)
+        print(f"{name:<24}{b:>7.1f}{r:>9.3f}{s['correctness']:>8}")
 """)
 
 md("""

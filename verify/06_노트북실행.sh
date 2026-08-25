@@ -73,7 +73,7 @@ echo "======================================================================"
 echo " 노트북 실행 검증 — 대상 ${#TARGETS[@]}종"
 echo "======================================================================"
 
-has_serving=$(printf '%s\n' "${TARGETS[@]}" | grep -cE 'Amazon|BM25|퓨샷' || true)
+has_serving=$(printf '%s\n' "${TARGETS[@]}" | grep -cE 'Amazon|BM25|퓨샷|평가' || true)
 has_training=$(printf '%s\n' "${TARGETS[@]}" | grep -cE 'Classification|NER|MiniGPT|SFT|DPO|GRPO' || true)
 vllm_up=$(curl -sf http://localhost:8000/v1/models >/dev/null 2>&1 && echo 1 || echo 0)
 

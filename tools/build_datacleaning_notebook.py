@@ -217,8 +217,9 @@ MAX_CHARS = 1500   # 앞부분만 본다 (아래 설명)
 # 2^31-1 은 소수다. int64 안에서 a*s 가 넘치지 않는 크기라 numpy 로 다루기 좋다.
 MOD = (1 << 31) - 1
 rng = np.random.default_rng(42)
-A = rng.integers(1, MOD, size=NUM_HASH, dtype=np.int64)
-B = rng.integers(0, MOD, size=NUM_HASH, dtype=np.int64)
+# 해시 함수 64개를 (a*x + b) mod p 형태로 만든다. a, b 는 함수마다 다른 상수다.
+HASH_A = rng.integers(1, MOD, size=NUM_HASH, dtype=np.int64)
+HASH_B = rng.integers(0, MOD, size=NUM_HASH, dtype=np.int64)
 
 
 def shingles(text: str) -> np.ndarray:
@@ -236,27 +237,31 @@ def minhash(sh: np.ndarray) -> np.ndarray:
     # 파이썬 이중 루프로 짜면 문서 수천 개에서 수십 분이 걸린다.
     if sh.size == 0:
         return np.zeros(NUM_HASH, dtype=np.int64)
-    return ((A[:, None] * sh[None, :] + B[:, None]) % MOD).min(axis=1)
+    return ((HASH_A[:, None] * sh[None, :] + HASH_B[:, None]) % MOD).min(axis=1)
 """)
 
 code("""
 # 원리 확인: 비슷한 문서와 다른 문서를 넣어보고 추정치가 맞는지 본다.
-A = "고양이는 포유류에 속하는 동물이다. 집에서 기르는 경우가 많다."
-B = "고양이는 포유류에 속하는 동물이다. 집에서 기르는 일이 많다."   # 거의 같음
-C = "맥스웰 방정식은 전자기 현상을 기술하는 네 개의 편미분 방정식이다."  # 다름
+# (변수명을 A, B 로 쓰면 위에서 만든 해시 계수 A, B 를 덮어쓴다. 실제로 그렇게 했다가 깨졌다)
+ex_base = "고양이는 포유류에 속하는 동물이다. 집에서 기르는 경우가 많다."
+ex_near = "고양이는 포유류에 속하는 동물이다. 집에서 기르는 일이 많다."   # 거의 같음
+ex_diff = "맥스웰 방정식은 전자기 현상을 기술하는 네 개의 편미분 방정식이다."  # 다름
+
 
 def jaccard(x, y):
     sx, sy = set(x.tolist()), set(y.tolist())
     return len(sx & sy) / len(sx | sy) if (sx | sy) else 0.0
 
+
 def sig_sim(x, y):
     return float((x == y).mean())
 
-for name, other in [("B(거의 같음)", B), ("C(다름)", C)]:
-    sa, so = shingles(A), shingles(other)
-    print(f"A vs {name}")
-    print(f"  실제 자카드      {jaccard(sa, so):.3f}")
-    print(f"  MinHash 추정치   {sig_sim(minhash(sa), minhash(so)):.3f}")
+
+for label, other in [("거의 같은 문서", ex_near), ("다른 문서", ex_diff)]:
+    s1, s2 = shingles(ex_base), shingles(other)
+    print(f"기준 문서 vs {label}")
+    print(f"  실제 자카드      {jaccard(s1, s2):.3f}")
+    print(f"  MinHash 추정치   {sig_sim(minhash(s1), minhash(s2)):.3f}")
     print()
 """)
 
