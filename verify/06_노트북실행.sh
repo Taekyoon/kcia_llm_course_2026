@@ -37,7 +37,9 @@ FAST=(
   "2일차/HPC_퓨샷실습.ipynb|1800"
 )
 # 학습계 — 오래 걸린다. vLLM 서버 불필요
+# (데이터처리는 GPU 를 쓰지 않지만 vLLM 과 무관하므로 여기 둔다)
 SLOW=(
+  "3일차/HPC_데이터처리실습.ipynb|1200"
   "1일차/HPC_Classification실습.ipynb|1800"
   "1일차/HPC_NER실습.ipynb|1800"
   "1일차/HPC_MiniGPT실습.ipynb|2400"
@@ -54,6 +56,7 @@ case "${1:-fast}" in
   rag)     TARGETS=("3일차/HPC_BM25_RAG실습.ipynb|900") ;;
   fewshot) TARGETS=("2일차/HPC_퓨샷실습.ipynb|1800") ;;
   minigpt) TARGETS=("1일차/HPC_MiniGPT실습.ipynb|2400") ;;
+  data)    TARGETS=("3일차/HPC_데이터처리실습.ipynb|1200") ;;
   *)       TARGETS=("$1|1800") ;;
 esac
 
