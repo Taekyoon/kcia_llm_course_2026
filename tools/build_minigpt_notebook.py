@@ -33,8 +33,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from layout import work_path
+
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "work" / "notebook" / "1일차" / "HPC_MiniGPT실습.ipynb"
+OUT = work_path("HPC_MiniGPT실습.ipynb")   # 일자 배치는 tools/layout.py 가 정한다
 
 MD = "markdown"
 CODE = "code"

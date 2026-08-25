@@ -40,6 +40,8 @@ TORCH_VER=$(python -c "import torch; print(torch.__version__.split('+')[0])")
   # 노트북이 쓰는 기능(OpenAI 클라이언트, response_format, structured outputs)은
   # 2.x 에서 이미 검증됐다(verify/05_vllm검증.py 통과 당시 openai 2.54.0).
   echo "openai<3"
+  # litellm 은 dspy 가 끌고 온다. 상한을 못박아 둔다.
+  echo "litellm<2"
 } > "$CONSTRAINTS"
 echo
 echo "  constraints 고정:"
@@ -138,6 +140,22 @@ PY
 
 echo
 echo "======================================================================"
+echo " 3-2. 프롬프트 자동 최적화 (2일차 ⑧-3)"
+echo "======================================================================"
+# dspy 는 transformers/datasets/trl/peft/huggingface_hub 에 의존하지 않는다.
+# 새로 들어오는 것은 litellm 계열뿐이라 학습 스택을 건드리지 않는다.
+# optuna 는 MIPROv2 전용이다. 우리는 GEPA 를 쓰므로 필수는 아니지만,
+# 강의 중에 MIPROv2 를 만져볼 때 compile() 도중에 죽는 것을 막으려고 같이 넣는다.
+pip install -q -c "$CONSTRAINTS" -U "dspy[optuna]"
+python -c "
+import dspy
+from dspy import GEPA
+print('  dspy  :', getattr(dspy, '__version__', '?'))
+print('  GEPA  : import OK')
+"
+
+echo
+echo "======================================================================"
 echo " 4. torch 가 보존됐는지 확인 ★"
 echo "======================================================================"
 python -c "
@@ -202,19 +220,47 @@ echo
 echo "  기본 커널 torch 재확인:"
 python -c "import torch; print('    ', torch.__version__)"
 
+echo
+echo "======================================================================"
+echo " 6. 데이터 경로 고정 (HPC_DATA)"
+echo "======================================================================"
+# 2일차 노트북들은 앞 단계가 만든 파일을 뒤 단계가 읽는다. 그런데 Jupyter 도 nbconvert 도
+# **커널 cwd 를 노트북이 있는 디렉터리**로 잡아서, 상대경로를 쓰면 노트북마다 다른 곳을 본다.
+# 여기서 절대경로를 한 번 못박아 두면 어느 노트북에서 열어도 같은 곳을 가리킨다.
+DATA_ABS="$(pwd)/data"
+mkdir -p "$DATA_ABS"
+export HPC_DATA="$DATA_ABS"
+if grep -q "^export HPC_DATA=" ~/.bashrc 2>/dev/null; then
+  sed -i "s|^export HPC_DATA=.*|export HPC_DATA=\"$DATA_ABS\"|" ~/.bashrc
+  echo "  ~/.bashrc 갱신: HPC_DATA=$DATA_ABS"
+else
+  echo "export HPC_DATA=\"$DATA_ABS\"" >> ~/.bashrc
+  echo "  ~/.bashrc 추가: HPC_DATA=$DATA_ABS"
+fi
+echo
+echo "  ★ Jupyter 커널은 ~/.bashrc 를 안 읽을 수 있습니다."
+echo "    노트북에서 경로가 안 잡히면 커널을 재시작하거나, Jupyter 자체를 이 셸에서"
+echo "    다시 띄우세요. 노트북은 HPC_DATA 가 없으면 repo 루트를 스스로 찾습니다."
+
 cat <<EOF
 
 ======================================================================
  준비 완료
 ======================================================================
 
-실습 노트북은 work/notebook/ 에 있습니다 (2026 스택으로 마이그레이션된 것).
+실습 노트북은 work/notebook/ 에 있습니다. **폴더 안의 순서가 곧 진행 순서**입니다.
 
-  work/notebook/1일차/  HPC_Classification실습 · HPC_NER실습 · HPC_MiniGPT실습
-  work/notebook/2일차/  HPC_SFT실습 · HPC_DPO실습 · HPC_GRPO실습 · HPC_퓨샷실습
-  work/notebook/3일차/  HPC_Amazon요약실습 · HPC_BM25_RAG실습
+  1일차 (2단원)  HPC_Classification실습 → HPC_NER실습
+  2일차 (3단원)  HPC_데이터처리실습 → HPC_Amazon요약실습
+                 → HPC_프롬프트최적화실습 → HPC_MiniGPT실습
+  3일차 (4단원)  HPC_평가실습 → HPC_퓨샷실습 → HPC_SFT실습
+                 → HPC_DPO실습 → HPC_GRPO실습 → HPC_BM25_RAG실습(심화)
 
---- 서빙 실습(퓨샷 · Amazon 요약 · BM25 RAG)을 하려면 ---
+  ★ 2일차는 앞 노트북이 만든 파일을 뒤 노트북이 받습니다. 순서를 지켜주세요.
+      데이터처리 → \$HPC_DATA/ko_wiki_clean.jsonl → MiniGPT 이어학습(CPT)
+      Amazon    → \$HPC_DATA/amazon_ko_sft.mine.jsonl → 3일차 SFT
+
+--- 서빙 실습(Amazon · 프롬프트최적화 · 퓨샷 · 평가 · RAG)을 하려면 ---
 
   source $VLLM_VENV/bin/activate
   nohup vllm serve $SERVE_MODEL --port 8000 \\

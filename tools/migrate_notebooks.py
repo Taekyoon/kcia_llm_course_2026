@@ -27,9 +27,9 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from layout import DAY_OF, SRC, WORK, find_source, prune_stale, work_path  # noqa: F401
+
 ROOT = Path(__file__).resolve().parent.parent
-SRC = ROOT / "notebook"          # 원본 — 읽기 전용
-WORK = ROOT / "work" / "notebook"  # 산출물 — 매번 새로 씀
 
 # 확정된 모델 구성 (review/03_개선계획.md 필-1)
 ENCODER = "jhu-clsp/mmBERT-base"          # 분류·NER — MIT, 인코더
@@ -67,10 +67,32 @@ class GlobalRule:
 
 
 @dataclass
+class AppendCells:
+    """노트북 **끝에** 셀을 덧붙인다.
+
+    Rule 은 기존 셀 안의 문자열 치환만 하므로 새 단계를 추가할 수 없다.
+    한 셀에 수십 줄을 욱여넣는 우회는 쓰지 않는다 — 중간 출력이 없어 수강생이
+    어디서 잘못됐는지 못 본다.
+
+    **끝에만** 허용한다. 중간 삽입을 허용하면 그 뒤 모든 Rule 의 `cell` 번호가
+    밀려서 규칙표 전체가 조용히 어긋난다. 그건 이 도구가 막으려는 바로 그 실패다.
+    """
+    cells: list[tuple[str, str]]   # ("markdown" | "code", source)
+    why: str
+    after_cell: int                # 적용 시점의 마지막 셀 번호. 다르면 중단한다.
+
+
+@dataclass
 class Migration:
-    path: str
+    name: str                      # 노트북 파일명만. 일자는 layout.py 가 정한다.
     rules: list[Rule] = field(default_factory=list)
     globals_: list[GlobalRule] = field(default_factory=list)
+    appends: list[AppendCells] = field(default_factory=list)
+
+    @property
+    def rel(self) -> str:
+        """로그 표시용 '일자/파일명'."""
+        return f"{DAY_OF.get(self.name, '?')}/{self.name}"
 
 
 # 공통 조각 -----------------------------------------------------------------
@@ -108,7 +130,7 @@ WHY_CHAT = ("transformers 5: apply_chat_template 이 BatchEncoding 반환 → "
 
 MIGRATIONS: list[Migration] = [
     # =====================================================================
-    Migration("1일차/HPC_Classification실습.ipynb", [
+    Migration("HPC_Classification실습.ipynb", [
         Rule(1,
              "!pip install datasets==3.5.1\n!pip install evaluate\n!pip install transformers[torch]",
              PIP_TRAIN, WHY_PIP),
@@ -153,7 +175,7 @@ MIGRATIONS: list[Migration] = [
     ]),
 
     # =====================================================================
-    Migration("1일차/HPC_NER실습.ipynb", [
+    Migration("HPC_NER실습.ipynb", [
         Rule(1,
              "!pip install datasets==3.5.0\n!pip install evaluate\n!pip install transformers[torch]\n!pip install seqeval",
              PIP_TRAIN + "\n%pip install -q seqeval", WHY_PIP),
@@ -204,7 +226,7 @@ MIGRATIONS: list[Migration] = [
     ]),
 
     # =====================================================================
-    Migration("2일차/HPC_SFT실습.ipynb", [
+    Migration("HPC_SFT실습.ipynb", [
         Rule(2,
              "%pip install -q transformers[torch] datasets\n%pip install -q trl peft",
              "%pip install -q -U transformers datasets trl peft accelerate", WHY_PIP),
@@ -247,7 +269,7 @@ MIGRATIONS: list[Migration] = [
     ]),
 
     # =====================================================================
-    Migration("2일차/HPC_DPO실습.ipynb", [
+    Migration("HPC_DPO실습.ipynb", [
         Rule(2, "!pip install -q transformers[torch] datasets==3.5.1",
              "%pip install -q -U transformers datasets accelerate", WHY_PIP),
         Rule(3, "!pip install -q trl peft", "%pip install -q -U trl peft", WHY_PIP),
@@ -260,7 +282,7 @@ MIGRATIONS: list[Migration] = [
     ]),
 
     # =====================================================================
-    Migration("2일차/HPC_GRPO실습.ipynb", [
+    Migration("HPC_GRPO실습.ipynb", [
         Rule(2, "!pip install transformers[torch] datasets==3.5.1",
              "%pip install -q -U transformers datasets accelerate", WHY_PIP),
         Rule(3, "!pip install -q trl peft math_verify",
@@ -283,7 +305,7 @@ MIGRATIONS: list[Migration] = [
     ]),
 
     # =====================================================================
-    Migration("2일차/HPC_퓨샷실습.ipynb", [
+    Migration("HPC_퓨샷실습.ipynb", [
         Rule(4, "pip install openai vllm datasets==3.5.1",
              "# vLLM 은 별도 venv 에서 서버로 띄운다 (verify/02_vllm_venv.sh 참조).\n"
              "# 이 노트북은 HTTP 로 붙기만 하므로 openai 클라이언트만 있으면 된다.\n"
@@ -318,7 +340,7 @@ MIGRATIONS: list[Migration] = [
     ]),
 
     # =====================================================================
-    Migration("3일차/HPC_Amazon요약실습.ipynb", [
+    Migration("HPC_Amazon요약실습.ipynb", [
         Rule(2, "pip install openai vllm datasets==3.5.1",
              "# vLLM 은 별도 venv 에서 서버로 띄운다 (verify/02_vllm_venv.sh 참조).\n"
              "# openai<3 : llama-index-llms-openai 가 openai<3 을 요구한다(3일차와 같은 환경)\n"
@@ -569,7 +591,7 @@ MIGRATIONS: list[Migration] = [
     ]),
 
     # =====================================================================
-    Migration("3일차/HPC_BM25_RAG실습.ipynb", [
+    Migration("HPC_BM25_RAG실습.ipynb", [
         Rule(3,
              "%pip install llama-index\n%pip install llama-index-retrievers-bm25\n"
              "%pip install llama-index-llms-vllm\n%pip install datasets\n%pip install vllm",
@@ -742,27 +764,19 @@ def set_source(cell: dict, text: str) -> None:
     cell["source"] = lines
 
 
-def find_source(work_rel: str) -> Path:
-    """work 상대경로에 대응하는 원본을 찾는다.
-
-    원본은 이름에 공백이 있다 ("HPC_DPO 실습.ipynb").
-    work 쪽은 공백을 없앴다 ("HPC_DPO실습.ipynb").
-    공백과 확장자를 모두 걷어낸 이름으로 대조한다.
-
-    (원본은 원래 확장자가 없었으나, Jupyter 에서 열리지 않아 .ipynb 를 붙였다.
-     내용은 그대로다 — 해시로 확인했다.)
-    """
-    day, name = work_rel.split("/")
-    want = name.removesuffix(".ipynb")
-    for p in (SRC / day).iterdir():
-        if p.is_file() and p.name.replace(" ", "").removesuffix(".ipynb") == want:
-            return p
-    raise SystemExit(f"[중단] 원본을 찾지 못했습니다: {SRC/day} 에서 {want!r}")
+def make_cell(kind: str, source: str) -> dict:
+    """노트북 셀 dict 를 만든다. build_*_notebook.py 와 같은 형태를 유지한다."""
+    cell = {"cell_type": kind, "metadata": {},
+            "source": source.strip("\n").splitlines(keepends=True)}
+    if kind == "code":
+        cell["outputs"] = []
+        cell["execution_count"] = None
+    return cell
 
 
 def apply(mig: Migration, dry: bool) -> tuple[int, int, list[str]]:
-    src_path = find_source(mig.path)
-    out_path = WORK / mig.path
+    src_path = find_source(mig.name)
+    out_path = work_path(mig.name)
 
     # 항상 원본에서 읽는다. 이전 실행 결과에 의존하지 않으므로 몇 번을 돌려도 같다.
     nb = json.loads(src_path.read_text(encoding="utf-8"))
@@ -775,13 +789,13 @@ def apply(mig: Migration, dry: bool) -> tuple[int, int, list[str]]:
         hits = sum(cell_source(c).count(g.old) for c in cells)
         if hits == 0:
             raise SystemExit(
-                f"\n[중단] {mig.path} 전역 치환 대상을 찾지 못했습니다.\n"
+                f"\n[중단] {mig.rel} 전역 치환 대상을 찾지 못했습니다.\n"
                 f"  사유: {g.why}\n  찾던 문자열:\n    {g.old[:200]!r}\n"
                 f"  → 원본이 바뀌었는지 확인하세요."
             )
         if hits != g.expect:
             raise SystemExit(
-                f"\n[중단] {mig.path} 전역 치환 횟수 불일치.\n"
+                f"\n[중단] {mig.rel} 전역 치환 횟수 불일치.\n"
                 f"  사유: {g.why}\n  예상 {g.expect}회, 실제 {hits}회\n"
                 f"  찾던 문자열:\n    {g.old[:200]!r}\n"
                 f"  → 자료가 바뀌었는지 확인하고 expect 값을 고치세요."
@@ -795,7 +809,7 @@ def apply(mig: Migration, dry: bool) -> tuple[int, int, list[str]]:
 
     for r in mig.rules:
         if not (1 <= r.cell <= len(cells)):
-            raise SystemExit(f"[중단] {mig.path} 셀 {r.cell} 범위 초과 (총 {len(cells)})")
+            raise SystemExit(f"[중단] {mig.rel} 셀 {r.cell} 범위 초과 (총 {len(cells)})")
         cell = cells[r.cell - 1]
         src = cell_source(cell)
 
@@ -807,12 +821,27 @@ def apply(mig: Migration, dry: bool) -> tuple[int, int, list[str]]:
             log.append(f"  [경고] 셀 {r.cell:>2} · 대상 못 찾음(optional): {r.why}")
         else:
             raise SystemExit(
-                f"\n[중단] {mig.path} 셀 {r.cell} 에서 대상 문자열을 찾지 못했습니다.\n"
+                f"\n[중단] {mig.rel} 셀 {r.cell} 에서 대상 문자열을 찾지 못했습니다.\n"
                 f"  사유: {r.why}\n"
                 f"  찾던 문자열:\n    {r.old[:200]!r}\n"
                 f"  실제 셀 내용:\n    {src[:400]!r}\n"
                 f"  → 규칙표를 실제 내용에 맞게 고치세요. 조용히 넘어가지 않습니다."
             )
+
+    # --- 셀 추가는 맨 마지막 ---
+    # Rule 을 다 적용한 뒤에 붙인다. 순서를 바꾸면 Rule 의 cell 번호가 밀린다.
+    for ap_ in mig.appends:
+        if ap_.after_cell != len(cells):
+            raise SystemExit(
+                f"\n[중단] {mig.rel} 셀 추가 위치가 맞지 않습니다.\n"
+                f"  사유: {ap_.why}\n"
+                f"  예상 마지막 셀 {ap_.after_cell}, 실제 {len(cells)}\n"
+                f"  → 원본이 바뀌었습니다. after_cell 을 확인하세요."
+            )
+        for kind, source in ap_.cells:
+            cells.append(make_cell(kind, source))
+        applied += 1
+        log.append(f"  [추가] 셀 {len(ap_.cells)}개 · {ap_.why}")
 
     if not dry:
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -833,12 +862,19 @@ def main() -> None:
     print(f"산출물        : {WORK}")
     print(f"\n인코더 : {ENCODER}\n학습   : {TRAIN_LM}\n서빙   : {SERVE_LM}")
 
+    # 일자를 재배치했으면 옛 위치에 사본이 남는다. 그대로 두면 같은 노트북이 둘이 되어
+    # 수강생이 어느 쪽을 열지 알 수 없다. 배치는 layout.py 가 단독으로 정한다.
+    if not args.dry_run:
+        print("\n── 배치 정리")
+        if not prune_stale():
+            print("  (정리할 것 없음)")
+
     total = 0
     for mig in MIGRATIONS:
         a, _s, log = apply(mig, args.dry_run)
         total += a
         note = "" if log else "  (변경 없음 — 통과 복사)"
-        print(f"\n── {mig.path}  (적용 {a}){note}")
+        print(f"\n── {mig.rel}  (적용 {a}){note}")
         for line in log:
             print(line)
 

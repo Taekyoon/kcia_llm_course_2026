@@ -30,36 +30,52 @@ OUT=/tmp/nb_exec
 mkdir -p "$OUT"
 W=work/notebook
 
+# 일자 폴더를 여기 적지 않는다. 배치는 tools/layout.py 가 단독으로 정하고,
+# 재배치할 때마다 이 파일이 어긋나는 것을 막기 위해 **이름으로 찾는다.**
+# (실제로 1·2·3일차를 한 번 재배치했고, 그때 이 배열이 전부 틀렸다.)
+nbpath() {
+  local hit
+  hit=$(find "$W" -name "$1.ipynb" -not -path '*/.ipynb_checkpoints/*' | head -n 1)
+  if [ -z "$hit" ]; then
+    echo "★ 노트북을 찾지 못했습니다: $1.ipynb" >&2
+    echo "   uv run python tools/layout.py 로 배치를 확인하세요." >&2
+    exit 1
+  fi
+  echo "${hit#"$W"/}"
+}
+
 # 추론계 — 빠르다 (vLLM 서버 필요)
 FAST=(
-  "3일차/HPC_Amazon요약실습.ipynb|1200"
-  "3일차/HPC_BM25_RAG실습.ipynb|900"
-  "2일차/HPC_퓨샷실습.ipynb|1800"
-  "2일차/HPC_평가실습.ipynb|900"      # LLM-as-judge 가 vLLM 을 쓴다
+  "$(nbpath HPC_Amazon요약실습)|1200"
+  "$(nbpath HPC_프롬프트최적화실습)|1800"   # 번역 → judge → GEPA
+  "$(nbpath HPC_BM25_RAG실습)|900"
+  "$(nbpath HPC_퓨샷실습)|1800"
+  "$(nbpath HPC_평가실습)|900"              # LLM-as-judge 가 vLLM 을 쓴다
 )
 # 학습계 — 오래 걸린다. vLLM 서버 불필요
 # (데이터처리는 GPU 를 쓰지 않지만 vLLM 과 무관하므로 여기 둔다)
 SLOW=(
-  "3일차/HPC_데이터처리실습.ipynb|1200"
-  "1일차/HPC_Classification실습.ipynb|1800"
-  "1일차/HPC_NER실습.ipynb|1800"
-  "1일차/HPC_MiniGPT실습.ipynb|2400"
-  "2일차/HPC_SFT실습.ipynb|2400"
-  "2일차/HPC_DPO실습.ipynb|2400"
-  "2일차/HPC_GRPO실습.ipynb|3000"
+  "$(nbpath HPC_데이터처리실습)|1200"
+  "$(nbpath HPC_Classification실습)|1800"
+  "$(nbpath HPC_NER실습)|1800"
+  "$(nbpath HPC_MiniGPT실습)|3000"          # CPT 데모가 붙어 예산을 늘렸다
+  "$(nbpath HPC_SFT실습)|2400"
+  "$(nbpath HPC_DPO실습)|2400"
+  "$(nbpath HPC_GRPO실습)|3000"
 )
 
 case "${1:-fast}" in
   # all 은 일부러 두지 않는다. 서빙계와 학습계는 한 GPU 에서 같이 못 돈다(아래 참조).
-  fast)    TARGETS=("${FAST[@]}") ;;
-  slow)    TARGETS=("${SLOW[@]}") ;;
-  amazon)  TARGETS=("3일차/HPC_Amazon요약실습.ipynb|1200") ;;
-  rag)     TARGETS=("3일차/HPC_BM25_RAG실습.ipynb|900") ;;
-  fewshot) TARGETS=("2일차/HPC_퓨샷실습.ipynb|1800") ;;
-  minigpt) TARGETS=("1일차/HPC_MiniGPT실습.ipynb|2400") ;;
-  data)    TARGETS=("3일차/HPC_데이터처리실습.ipynb|1200") ;;
-  eval)    TARGETS=("2일차/HPC_평가실습.ipynb|900") ;;
-  *)       TARGETS=("$1|1800") ;;
+  fast)      TARGETS=("${FAST[@]}") ;;
+  slow)      TARGETS=("${SLOW[@]}") ;;
+  amazon)    TARGETS=("$(nbpath HPC_Amazon요약실습)|1200") ;;
+  promptopt) TARGETS=("$(nbpath HPC_프롬프트최적화실습)|1800") ;;
+  rag)       TARGETS=("$(nbpath HPC_BM25_RAG실습)|900") ;;
+  fewshot)   TARGETS=("$(nbpath HPC_퓨샷실습)|1800") ;;
+  minigpt)   TARGETS=("$(nbpath HPC_MiniGPT실습)|3000") ;;
+  data)      TARGETS=("$(nbpath HPC_데이터처리실습)|1200") ;;
+  eval)      TARGETS=("$(nbpath HPC_평가실습)|900") ;;
+  *)         TARGETS=("$1|1800") ;;
 esac
 
 # 실행 전에 정적 검사부터. GPU 를 붙잡기 전에 문법 오류를 걸러낸다.
@@ -73,7 +89,7 @@ echo "======================================================================"
 echo " 노트북 실행 검증 — 대상 ${#TARGETS[@]}종"
 echo "======================================================================"
 
-has_serving=$(printf '%s\n' "${TARGETS[@]}" | grep -cE 'Amazon|BM25|퓨샷|평가' || true)
+has_serving=$(printf '%s\n' "${TARGETS[@]}" | grep -cE 'Amazon|BM25|퓨샷|평가|프롬프트최적화' || true)
 has_training=$(printf '%s\n' "${TARGETS[@]}" | grep -cE 'Classification|NER|MiniGPT|SFT|DPO|GRPO' || true)
 vllm_up=$(curl -sf http://localhost:8000/v1/models >/dev/null 2>&1 && echo 1 || echo 0)
 

@@ -27,8 +27,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from layout import work_path
+from nbcommon import DATA_DIR_CODE, DATA_DIR_MD, jsonl_save_code
+
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "work" / "notebook" / "3일차" / "HPC_데이터처리실습.ipynb"
+OUT = work_path("HPC_데이터처리실습.ipynb")   # 일자 배치는 tools/layout.py 가 정한다
 
 MD, CODE = "markdown", "code"
 CELLS: list[tuple[str, str]] = []
@@ -487,6 +490,64 @@ LocalPipelineExecutor(
 
 # ---------------------------------------------------------------------
 md("""
+## 7. 코퍼스 저장
+
+정제했으면 **저장해야 씁니다.** 지금까지의 결과는 메모리 안에만 있습니다.
+
+바로 다음 노트북(`HPC_MiniGPT실습`)에서 이 파일을 읽어 **이어학습(Continuous
+Pre-training)** 에 씁니다. 오늘 만든 데이터로 오늘 학습하게 됩니다.
+""")
+
+md(DATA_DIR_MD)
+code(DATA_DIR_CODE)
+
+code(jsonl_save_code("kept", "ko_wiki_clean.jsonl",
+                     '"id": d["id"], "title": d["title"], "text": d["text"]'))
+
+# ---------------------------------------------------------------------
+md("""
+## 8. 데이터셋 카드
+
+데이터를 만들면 **무엇을 어떻게 만들었는지 함께 적습니다.** 몇 달 뒤에 이 파일만
+남으면 출처도 기준도 알 수 없게 됩니다. 실무에서 데이터셋 카드를 요구하는 이유입니다.
+
+아래 셀은 지금까지의 처리 내역을 그대로 카드로 뽑습니다.
+""")
+
+code('''
+card = f"""# ko_wiki_clean
+
+## 출처
+- `wikimedia/wikipedia` config `20231101.ko` 의 앞 {N_DOCS:,}건
+- 라이선스: **CC BY-SA 4.0** (원저작자 표시 + 동일조건 변경허락)
+
+## 처리
+| 단계 | 남은 문서 |
+|---|---:|
+| 원본 | {len(docs):,} |
+| 정확 중복 제거 (정규화 후 해시) | {len(exact_dedup):,} |
+| 근사 중복 제거 (MinHash {NUM_HASH}bit / {BANDS}밴드 / 임계 {THRESHOLD}) | {len(near_dedup):,} |
+| 품질 필터 | {len(kept):,} |
+
+## 품질 필터 기준
+""" + "\\n".join(f"- {name}" for name in RULES) + f"""
+
+## 규모
+- 문서 {len(kept):,}건, 총 {sum(len(d['text']) for d in kept):,}자
+- 문서당 중앙값 {sorted(len(d['text']) for d in kept)[len(kept)//2]:,}자
+
+## 한계
+- 앞 {N_DOCS:,}건만 썼습니다. 실제 Pre-training 은 수십~수백 GB 규모입니다.
+- 근사 중복은 임계값 {THRESHOLD} 기준입니다. 낮추면 더 지우고 정상 문서도 지웁니다.
+- 개인정보·유해표현 필터는 넣지 않았습니다. 실서비스에는 반드시 필요합니다.
+"""
+
+(DATA_DIR / "ko_wiki_clean.md").write_text(card, encoding="utf-8")
+print(card)
+''')
+
+# ---------------------------------------------------------------------
+md("""
 ## 마무리
 
 Pre-training 데이터가 어떻게 만들어지는지 봤습니다.
@@ -495,8 +556,12 @@ Pre-training 데이터가 어떻게 만들어지는지 봤습니다.
 - **MinHash + LSH** 로 비교 횟수를 크게 줄일 수 있습니다
 - **품질 필터**는 정답이 없습니다. 걸러진 결과를 보면서 조정합니다
 - 실무에서는 `datatrove` 같은 도구를 쓰지만 **원리와 확인 과정은 같습니다**
+- 만든 데이터에는 **데이터셋 카드**를 붙입니다
 
-여기서 정제한 코퍼스가 다음 단계인 **Continuous Pre-training** 의 입력이 됩니다.
+방금 저장한 `ko_wiki_clean.jsonl` 을 **바로 다음 노트북(`HPC_MiniGPT실습`)의
+이어학습 단계에서 읽습니다.** 동화로 학습한 작은 GPT 에 이 위키 코퍼스를 넣으면
+어떻게 되는지 — Continuous Pre-training 이 왜 까다로운지 직접 보게 됩니다.
+
 좋은 모델은 좋은 데이터에서 나오고, 그 데이터는 이런 과정을 거쳐 만들어집니다.
 """)
 

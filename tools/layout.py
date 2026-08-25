@@ -1,0 +1,146 @@
+"""실습 노트북의 **일자 배치**를 한 곳에서 정의한다.
+
+왜 따로 두는가
+--------------
+노트북을 만드는 주체가 넷이다 — `migrate_notebooks.py` (원본 8종 변환) 와
+`build_*_notebook.py` 3종 (신규 작성). 각자 자기 출력 경로를 들고 있으면
+일자를 재배치할 때 네 군데를 고쳐야 하고, 하나를 빠뜨리면 **옛 위치와 새 위치에
+같은 노트북이 둘 남는다.** 수강생은 어느 쪽이 최신인지 알 수 없다.
+
+그래서 배치는 여기에만 적고, 나머지는 전부 여기를 참조한다.
+
+배치 근거
+---------
+HWP 계획서의 단원별 시수(3/4/7/7H)에 일자를 맞춘 결과다
+(review/06_구성재설계.md §7 에서 확정).
+
+    1일차 = 1단원(AI SW 개론) + 2단원(트랜스포머와 ChatGPT)
+    2일차 = 3단원(LLM Pre-training)
+    3일차 = 4단원(LLM Post-training)
+
+폴더명이 강의 일자와 어긋나 있으면 "1일차 폴더인데 2일차에 해요" 를 매번 안내해야 하고,
+노트북 사이에 파일을 주고받을 때 경로가 강의 순서를 거스르는 것처럼 보인다.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+SRC = ROOT / "notebook"            # 원본 — 읽기 전용 (CLAUDE.md §1)
+WORK = ROOT / "work" / "notebook"  # 산출물 — 매번 새로 씀
+
+# 일자 안의 순서가 곧 **강의 진행 순서**다. 파일 의존도 이 순서를 따른다.
+#   2일차: 데이터처리 → (Amazon → 프롬프트최적화) → MiniGPT
+#          ko_wiki_clean.jsonl 을 데이터처리가 만들고 MiniGPT 가 받는다.
+LAYOUT: dict[str, list[str]] = {
+    "1일차": [                       # 2단원 ⑤ — 인코더 모델 실습
+        "HPC_Classification실습.ipynb",
+        "HPC_NER실습.ipynb",
+    ],
+    "2일차": [                       # 3단원 ⑧⑨⑩
+        "HPC_데이터처리실습.ipynb",      # ⑧ 정제
+        "HPC_Amazon요약실습.ipynb",     # ⑧ 구조화 추출
+        "HPC_프롬프트최적화실습.ipynb",   # ⑧ 번역 → judge → 자동 최적화
+        "HPC_MiniGPT실습.ipynb",       # ⑨ + ⑩ CPT 데모
+    ],
+    "3일차": [                       # 4단원 ⑪⑫⑬⑭ + 심화
+        "HPC_평가실습.ipynb",           # ⑪ 태스크 정의와 평가
+        "HPC_퓨샷실습.ipynb",           # ⑫ Few-shot
+        "HPC_SFT실습.ipynb",           # ⑬ 파인튜닝과 LoRA
+        "HPC_DPO실습.ipynb",           # ⑭ Preference Learning
+        "HPC_GRPO실습.ipynb",          # ⑭ GRPO
+        "HPC_BM25_RAG실습.ipynb",       # 심화 (시간이 남으면)
+    ],
+}
+
+# 이름 → 일자. 역인덱스.
+DAY_OF: dict[str, str] = {n: d for d, names in LAYOUT.items() for n in names}
+
+
+def work_path(name: str) -> Path:
+    """노트북 이름으로 산출물 경로를 얻는다. 배치에 없으면 중단한다."""
+    day = DAY_OF.get(name)
+    if day is None:
+        raise SystemExit(
+            f"[중단] LAYOUT 에 없는 노트북입니다: {name!r}\n"
+            f"  tools/layout.py 의 LAYOUT 에 먼저 추가하세요."
+        )
+    return WORK / day / name
+
+
+def find_source(name: str) -> Path:
+    """원본 노트북을 찾는다. **세 일자 폴더를 전부 뒤진다.**
+
+    원본(`notebook/`)의 일자 폴더는 25년 배치 그대로이고 불가침이다.
+    산출물만 재배치했으므로, 출력 일자로 원본을 찾으면 어긋난다.
+    이름이 중복되지 않으므로 전 폴더 탐색이 안전하다.
+
+    이름 대조 시 공백과 확장자를 걷어낸다. 원본은 "HPC_DPO 실습.ipynb" 처럼
+    공백이 있고 산출물은 없앴다. (원본은 원래 확장자가 없었으나 Jupyter 에서
+    열리지 않아 .ipynb 를 붙였다 — 내용은 그대로다. 해시로 확인했다.)
+    """
+    want = name.removesuffix(".ipynb")
+    hits = [
+        p
+        for day in LAYOUT
+        for p in (SRC / day).iterdir()
+        if (SRC / day).is_dir()
+        and p.is_file()
+        and p.name.replace(" ", "").removesuffix(".ipynb") == want
+    ]
+    if not hits:
+        raise SystemExit(f"[중단] 원본을 찾지 못했습니다: {SRC} 어디에도 {want!r} 없음")
+    if len(hits) > 1:
+        raise SystemExit(
+            f"[중단] 원본이 여러 곳에 있습니다: {[str(p) for p in hits]}\n"
+            f"  이름이 중복되면 어느 것을 쓸지 정할 수 없습니다."
+        )
+    return hits[0]
+
+
+def prune_stale(verbose: bool = True) -> list[Path]:
+    """LAYOUT 이 정한 자리가 아닌 곳에 있는 노트북 사본을 지운다.
+
+    일자를 재배치하면 옛 위치에 사본이 남는다. 그대로 두면 같은 노트북이 둘이 되어
+    수강생이 어느 쪽을 열지 알 수 없다. `work/` 는 언제든 재생성 가능한 산출물이므로
+    지우는 것이 안전하다 (원본 `notebook/` 은 건드리지 않는다).
+    """
+    removed = []
+    if not WORK.exists():
+        return removed
+    for p in sorted(WORK.rglob("*.ipynb")):
+        if ".ipynb_checkpoints" in p.parts:
+            continue
+        want_day = DAY_OF.get(p.name)
+        if want_day is None:
+            # LAYOUT 에 없는 노트북. 사람이 넣어둔 것일 수 있으니 지우지 않고 알린다.
+            if verbose:
+                print(f"  [경고] LAYOUT 에 없는 노트북: {p.relative_to(WORK)} (그대로 둠)")
+            continue
+        if p.parent.name != want_day:
+            p.unlink()
+            removed.append(p)
+            if verbose:
+                print(f"  [정리] 옛 위치 삭제: {p.relative_to(WORK)} → {want_day}/ 로 이동")
+
+    # 비어버린 일자 폴더는 정리한다 (LAYOUT 에 있는 일자는 남긴다)
+    for d in sorted(WORK.iterdir()) if WORK.exists() else []:
+        if d.is_dir() and d.name not in LAYOUT and not any(d.iterdir()):
+            d.rmdir()
+            if verbose:
+                print(f"  [정리] 빈 폴더 삭제: {d.name}/")
+    return removed
+
+
+if __name__ == "__main__":
+    print(f"원본  : {SRC}")
+    print(f"산출물: {WORK}")
+    print()
+    for day, names in LAYOUT.items():
+        print(f"{day}/")
+        for i, n in enumerate(names, 1):
+            exists = "✓" if (WORK / day / n).exists() else "·"
+            print(f"  {exists} {i}. {n}")
+    print()
+    print(f"총 {sum(len(v) for v in LAYOUT.values())}종")
