@@ -34,6 +34,7 @@ import json
 from pathlib import Path
 
 from layout import work_path
+from nbcommon import DATA_DIR_CODE, DATA_DIR_MD
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = work_path("HPC_MiniGPT실습.ipynb")   # 일자 배치는 tools/layout.py 가 정한다
@@ -667,6 +668,340 @@ for t in [0.5, 1.0, 1.5]:
          do_sample=True, top_k=0, top_p=0.9, temperature=t)
 """)
 
+# =====================================================================
+# 6. Continuous Pre-training (커리큘럼 3단원 ⑩)
+# =====================================================================
+md("""
+## 6. 이어서 학습시키기 — Continuous Pre-training
+
+지금 이 모델은 **동화만** 압니다. 동화 데이터로만 학습했으니 당연합니다.
+
+여기에 다른 도메인을 가르치고 싶다면 어떻게 할까요. 처음부터 다시 학습시키는 것은
+너무 비쌉니다. 그래서 **이미 학습된 모델에 새 데이터를 이어서 학습**시킵니다.
+이것을 Continuous Pre-training(CPT) 이라고 합니다.
+
+한국어 LLM 은 대부분 이 방식으로 만들어졌습니다. `llama-2-ko` 는 Llama-2 에,
+`EEVE-Korean` 은 SOLAR 에 한국어를 이어 학습시킨 것입니다.
+
+**말은 간단한데 실제로는 까다롭습니다.** 바로 앞 노트북(`HPC_데이터처리실습`)에서
+정제한 위키 코퍼스를 넣어보면 무슨 일이 벌어지는지 보입니다.
+""")
+
+md(DATA_DIR_MD)
+code(DATA_DIR_CODE)
+
+code("""
+import json
+
+wiki_path = DATA_DIR / "ko_wiki_clean.jsonl"
+if not wiki_path.exists():
+    raise FileNotFoundError(
+        f"{wiki_path} 가 없습니다.\\n"
+        "  이 파일은 앞 노트북 HPC_데이터처리실습 이 만듭니다.\\n"
+        "  2일차 순서대로 그 노트북을 먼저 실행해 주세요."
+    )
+
+wiki_docs = [json.loads(l) for l in wiki_path.open(encoding="utf-8")]
+print(f"위키 정제 코퍼스 {len(wiki_docs):,}건")
+print(f"  예시: [{wiki_docs[0]['title']}] {wiki_docs[0]['text'][:80]!r}")
+""")
+
+# ---------------------------------------------------------------------
+md("""
+### 6-1. 첫 번째 문제 — 토크나이저가 안 맞는다
+
+우리 토크나이저는 **동화로 학습시킨 것**입니다. 사전 크기도 5,000 뿐입니다.
+동화에 안 나오는 말(한자, 학술 용어, 연도, 괄호 안 원어)은 사전에 없으니
+잘게 쪼개집니다.
+
+같은 한 글자를 표현하는 데 토큰이 몇 개나 드는지 재보면 바로 보입니다.
+""")
+
+code("""
+def tokens_per_char(texts):
+    t = sum(len(tokenizer.encode(x)) for x in texts)
+    c = sum(len(x) for x in texts)
+    return t / c
+
+story_sample = [train_docs[i][COL] for i in range(200)]
+wiki_sample  = [d["text"][:2000] for d in wiki_docs[:200]]
+
+tpc_story = tokens_per_char(story_sample)
+tpc_wiki  = tokens_per_char(wiki_sample)
+
+print(f"동화  {tpc_story:.3f} 토큰/글자")
+print(f"위키  {tpc_wiki:.3f} 토큰/글자   ← {tpc_wiki/tpc_story:.1f}배")
+print()
+print("같은 분량의 글을 넣어도 위키 쪽이 토큰을 훨씬 많이 먹습니다.")
+print("학습 비용이 그만큼 늘고, 컨텍스트에 담기는 내용은 줄어듭니다.")
+print()
+print("── 실제로 어떻게 쪼개지는지 ──")
+for s in ["옛날 옛적에 작은 고양이가 살았어요.",
+          "1919년 3월 1일 경성부에서 만세운동이 일어났다."]:
+    ids = tokenizer.encode(s)
+    print(f"  {s}")
+    print(f"    {len(ids)}토큰: {[tokenizer.decode([i]) for i in ids][:18]}")
+""")
+
+md("""
+> **그래서 실무에서는 어휘 확장(vocab expansion)을 합니다.** `llama-2-ko` 는 사전을
+> 32,000 → 46,336 으로, `EEVE-Korean` 은 32,000 → 40,960 으로 늘렸습니다.
+>
+> 다만 어휘 확장은 **처음에 성능이 오히려 떨어졌다가 수십억 토큰을 학습해야 회복**됩니다.
+> 이 실습은 몇 분짜리라 회복 구간에 도달할 수 없어서, 여기서는 확장하지 않고
+> **불일치가 어떤 문제인지 보는 데까지만** 갑니다.
+> 최신 사례인 `Llama-3-Open-Ko` 도 확장 없이 갔습니다 — 원 토크나이저가 이미 충분히
+> 컸기 때문입니다. 늘리는 것만이 답은 아닙니다.
+""")
+
+# ---------------------------------------------------------------------
+md("""
+### 6-2. 학습 전 상태를 붙잡아 둔다
+
+이어학습은 **모델을 제자리에서 바꿉니다.** 한 번 돌리면 지금의 모델은 사라집니다.
+비교하려면 미리 복사해 두어야 합니다.
+
+그리고 비교는 **같은 프롬프트, 같은 난수**로 해야 합니다. 안 그러면 달라진 것이
+학습 때문인지 샘플링 운 때문인지 알 수 없습니다.
+""")
+
+code("""
+import copy
+
+# 2백만 파라미터라 통째로 복사해도 부담이 없다. 되돌릴 수 있게 해둔다.
+model_before = copy.deepcopy(model)
+
+CPT_PROMPTS = ["옛날 옛적에 작은 고양이가", "톰과 지미는 공원에서"]
+
+def sample_stories(m):
+    \"\"\"같은 프롬프트·같은 시드로 생성한다. 전후 비교용이라 재현성이 핵심이다.\"\"\"
+    dev = next(m.parameters()).device
+    out = {}
+    for p in CPT_PROMPTS:
+        torch.manual_seed(0)          # ★ 없으면 비교가 무의미해진다
+        ids = tokenizer(p, return_tensors="pt").input_ids.to(dev)
+        g = m.generate(ids, max_new_tokens=60, do_sample=True, top_p=0.9,
+                       pad_token_id=tokenizer.pad_token_id, use_cache=False)
+        out[p] = tokenizer.decode(g[0], skip_special_tokens=True)
+    return out
+
+def story_ppl(m):
+    \"\"\"동화 평가셋에 대한 perplexity. '동화를 얼마나 잊었는가' 의 지표다.\"\"\"
+    t = Trainer(model=m, args=TrainingArguments(
+        output_dir="tmp_eval", per_device_eval_batch_size=BATCH_SIZE,
+        report_to="none", bf16=torch.cuda.is_bf16_supported()))
+    return math.exp(t.evaluate(eval_dataset=lm_eval)["eval_loss"])
+
+before_txt = sample_stories(model_before)
+before_ppl = story_ppl(model_before)
+
+print(f"이어학습 전 동화 Perplexity: {before_ppl:.2f}\\n")
+for p, t in before_txt.items():
+    print(f"[{p}] {t}\\n")
+""")
+
+# ---------------------------------------------------------------------
+md("""
+### 6-3. 위키 데이터 준비
+
+위키 문서는 수만 자짜리가 흔합니다. 그대로 넣으면 토큰화·청킹만으로 시간이 다 갑니다.
+**앞부분만 잘라서** 씁니다.
+""")
+
+code("""
+CPT_DOCS  = 2000     # 쓸 문서 수
+CPT_CHARS = 2000     # 문서당 앞부분만. 자르지 않으면 블록이 수십만 개가 된다
+CPT_STEPS = 300      # max_steps 로 고정. epoch 로 하면 데이터 크기에 따라 시간이 요동친다
+CPT_LR    = 5e-5     # 본학습 LR(5e-4) 의 1/10. 근거는 아래에서 설명한다
+""")
+
+code("""
+from datasets import Dataset, concatenate_datasets
+
+wiki_raw = Dataset.from_dict(
+    {"text": [d["text"][:CPT_CHARS] for d in wiki_docs[:CPT_DOCS]]}
+)
+
+def wiki_tokenize(batch):
+    return {"ids": [tokenizer.encode(t) for t in batch["text"]]}
+
+# remove_columns 를 반드시 준다. 위키에는 id/url/title 이 함께 오는데,
+# 남겨두면 chunk 가 만드는 블록 수와 길이가 안 맞아 pyarrow 에러가 난다.
+wiki_tok = wiki_raw.map(wiki_tokenize, batched=True,
+                        remove_columns=wiki_raw.column_names, desc="토큰화(위키)")
+wiki_blocks = wiki_tok.map(chunk, batched=True, batch_size=1000,
+                           remove_columns=["ids"], desc="청킹(위키)")
+
+# 위키 평가셋은 학습에 안 쓴 뒤쪽에서 뗀다
+split = wiki_blocks.train_test_split(test_size=0.05, seed=0)
+wiki_train, wiki_eval = split["train"], split["test"]
+
+print(f"위키 학습 블록 {len(wiki_train):,}개 / 평가 블록 {len(wiki_eval):,}개")
+print(f"동화 학습 블록 {len(lm_train):,}개 (replay 용으로 재사용)")
+""")
+
+# ---------------------------------------------------------------------
+md("""
+### 6-4. 두 번째 문제 — 배운 것을 잊는다
+
+새 데이터만 계속 넣으면 모델은 **원래 알던 것을 잊습니다.**
+이것을 치명적 망각(catastrophic forgetting) 이라고 합니다.
+
+대응은 의외로 단순합니다. **원래 데이터를 조금 섞어서 같이 학습**시키면 됩니다.
+이걸 replay 라고 합니다.
+
+얼마나 섞어야 할까요. 문헌에 실측이 있습니다
+(Ibrahim et al. 2024, *Simple and Scalable Strategies to Continually Pre-train LLMs*).
+
+| replay 비율 | 결과 |
+|---:|---|
+| 1% | 이것만으로도 망각이 **유의미하게** 줄어든다 |
+| 5% | 도메인이 비슷할 때 권장 |
+| **25%** | 도메인이 크게 다를 때 권장 (영어→독일어 실험 기준) |
+| 50% | 너무 많다. **새 도메인 적응이 나빠진다** |
+
+우리 경우는 동화 → 백과사전입니다. 주제도 문체도 완전히 다르니 **강한 이동**입니다.
+0% / 5% / 25% 를 직접 돌려서 비교해 봅시다.
+""")
+
+code("""
+def make_mixed(replay_ratio, total_blocks):
+    \"\"\"위키 + 동화(replay) 를 섞어 학습셋을 만든다.\"\"\"
+    n_replay = int(total_blocks * replay_ratio)
+    n_wiki   = total_blocks - n_replay
+    parts = [wiki_train.shuffle(seed=0).select(range(min(n_wiki, len(wiki_train))))]
+    if n_replay:
+        parts.append(lm_train.shuffle(seed=0).select(range(min(n_replay, len(lm_train)))))
+    return concatenate_datasets(parts).shuffle(seed=0)
+
+# max_steps 만큼 돌 수 있는 분량이면 충분하다
+NEED = CPT_STEPS * BATCH_SIZE
+print(f"필요 블록 {NEED:,}개 (= {CPT_STEPS}스텝 x 배치 {BATCH_SIZE})")
+for r in [0.0, 0.05, 0.25]:
+    ds = make_mixed(r, NEED)
+    print(f"  replay {r:>5.0%} → 총 {len(ds):,}블록")
+""")
+
+md("""
+#### learning rate 를 왜 낮추는가
+
+본학습은 `5e-4` 였습니다. 이어학습은 `5e-5` — **1/10** 로 낮춥니다.
+
+임의로 정한 값이 아닙니다. 공개된 한국어 CPT 레시피가 그렇습니다.
+
+| 모델 | CPT learning rate |
+|---|---|
+| EEVE-Korean-10.8B | `4e-5` |
+| llama-2-ko-7b | `1e-5` |
+
+원 사전학습 LR 의 **1/10 ~ 1/30** 수준입니다. 위 논문도 같은 방향을 확인했습니다 —
+**LR 을 낮추면 망각이 줄고, 높이면 새 도메인에 빨리 적응한다.** 트레이드오프입니다.
+
+> 참고로 같은 논문이 warmup 길이(0 / 0.5 / 1 / 2%)도 비교했는데 **망각에도 적응에도
+> 영향이 없었습니다.** warmup 은 튜닝할 대상이 아닙니다. 관례대로 1% 만 줍니다.
+""")
+
+code("""
+def run_cpt(replay_ratio):
+    \"\"\"학습 전 모델 사본에서 시작해 이어학습하고, 동화/위키 perplexity 를 잰다.
+
+    ★ 매번 model_before 를 복사해서 시작한다. 같은 모델을 이어서 쓰면
+      앞 실험의 영향이 누적되어 replay 비율 비교가 무의미해진다.
+    \"\"\"
+    m = copy.deepcopy(model_before)
+    ds = make_mixed(replay_ratio, NEED)
+
+    cpt_args = TrainingArguments(
+        output_dir=f"minigpt_cpt_{int(replay_ratio*100)}",
+        per_device_train_batch_size=BATCH_SIZE,
+        per_device_eval_batch_size=BATCH_SIZE,
+        max_steps=CPT_STEPS,          # epoch 대신 스텝으로 고정
+        learning_rate=CPT_LR,
+        lr_scheduler_type="cosine_with_min_lr",
+        lr_scheduler_kwargs={"min_lr_rate": 0.1},   # 최저 LR = 최고의 10%
+        warmup_ratio=0.01,
+        logging_steps=10,             # 기본 100 이면 300스텝에 점이 3개뿐이다
+        save_strategy="no",
+        bf16=torch.cuda.is_bf16_supported(),
+        report_to="none",
+    )
+    t = Trainer(model=m, args=cpt_args, train_dataset=ds,
+                processing_class=tokenizer)
+    t.train()
+
+    return {
+        "model": m,
+        "replay": replay_ratio,
+        "동화_ppl": math.exp(t.evaluate(eval_dataset=lm_eval)["eval_loss"]),
+        "위키_ppl": math.exp(t.evaluate(eval_dataset=wiki_eval)["eval_loss"]),
+    }
+""")
+
+code("""
+results = [run_cpt(r) for r in [0.0, 0.05, 0.25]]
+""")
+
+# ---------------------------------------------------------------------
+md("""
+### 6-5. 결과
+
+**숫자를 먼저 봅니다.** 생성 결과만 보고 판단하려 하면 안 됩니다 —
+이 모델은 2백만 파라미터짜리라 원래도 출력이 그리 좋지 않아서,
+"망가졌다" 를 눈으로 구분하기 어렵습니다. Perplexity 는 그렇지 않습니다.
+""")
+
+code("""
+print(f"{'replay':>8}{'동화 PPL':>12}{'(전 대비)':>12}{'위키 PPL':>12}")
+print("-" * 46)
+print(f"{'학습 전':>8}{before_ppl:>12.2f}{'—':>12}{'—':>12}")
+for r in results:
+    ratio = r["동화_ppl"] / before_ppl
+    print(f"{r['replay']:>7.0%}{r['동화_ppl']:>12.2f}{ratio:>11.1f}x{r['위키_ppl']:>12.2f}")
+
+print()
+print("읽는 법")
+print("  동화 PPL 이 올라간 정도 = 잊어버린 정도")
+print("  위키 PPL 이 낮을수록   = 새 도메인을 잘 배운 것")
+print("  replay 를 늘리면 앞은 좋아지고 뒤는 나빠진다. 그 사이를 고르는 것이다.")
+""")
+
+code("""
+# replay 0% 모델이 동화를 어떻게 쓰는지 — 학습 전과 같은 프롬프트, 같은 시드
+after_txt = sample_stories(results[0]["model"])
+
+for p in CPT_PROMPTS:
+    print("=" * 70)
+    print(f"프롬프트: {p}")
+    print("=" * 70)
+    print(f"  [이어학습 전]   {before_txt[p]}")
+    print()
+    print(f"  [replay 0% 후]  {after_txt[p]}")
+    print()
+""")
+
+md("""
+#### 무엇을 봤나
+
+- **동화 Perplexity 가 뛰었습니다.** replay 없이 위키만 학습시키면 동화를 잊습니다.
+  숫자로 몇 배가 올랐는지 확인하세요.
+- **replay 를 조금만 섞어도 상당히 돌아옵니다.** 5% 와 0% 의 차이를 보세요.
+  논문이 "1% 만으로도 유의미하다" 고 한 이유입니다.
+- **25% 는 동화를 거의 지킵니다.** 대신 위키 Perplexity 는 0% 보다 높습니다.
+  공짜가 아닙니다.
+- 생성 결과에도 **문체가 섞이는 것**이 보입니다. 동화를 쓰다가 백과사전 말투가
+  튀어나옵니다.
+
+> 실제 한국어 LLM 을 만들 때도 정확히 이 문제를 다룹니다. 다만 규모가 달라서
+> 위키 몇천 건이 아니라 **수십 GB** 를 넣고, 몇 분이 아니라 **몇 주**를 돌립니다.
+> 원리와 손잡이(LR, replay 비율, 어휘 확장)는 방금 만진 것과 같습니다.
+""")
+
+code("""
+# 원래 모델로 되돌린다. 위쪽 디코딩 전략 셀들을 다시 돌려보려면 이게 필요하다.
+model = model_before
+print("model 을 이어학습 전 상태로 되돌렸습니다.")
+""")
+
 # ---------------------------------------------------------------------
 md("""
 ## 마무리
@@ -677,10 +1012,16 @@ md("""
 - **Causal Self-Attention** 을 직접 구현하며 뒤를 가리는 마스킹을 봤습니다
 - **다음 토큰 맞히기** 하나로 사전학습이 이뤄지는 것을 확인했습니다
 - **디코딩 전략**에 따라 같은 모델이 다른 글을 쓰는 것을 봤습니다
+- **이어학습(CPT)** 으로 새 도메인을 가르쳤고, 그 대가로 치른 것 —
+  토크나이저 불일치와 치명적 망각 — 그리고 **replay 로 막는 법**을 봤습니다
 
 여기서 만든 모델은 2백만 파라미터 남짓입니다.
 실제 LLM 은 같은 구조를 **수천 배 키우고** 훨씬 많은 데이터로 학습시킨 것입니다.
 구조 자체는 방금 만든 것과 다르지 않습니다.
+
+내일은 이 모델을 **쓸 만하게 만드는** 단계로 갑니다.
+사전학습된 모델은 다음 토큰을 이어붙일 뿐 지시를 따르지는 못합니다.
+그것을 가르치는 것이 Post-training 입니다.
 """)
 
 

@@ -15,10 +15,10 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
 
-NB = (Path(__file__).resolve().parent.parent
-      / "work" / "notebook" / "3일차" / "HPC_Amazon요약실습.ipynb")
+from layout import work_path
+
+NB = work_path("HPC_Amazon요약실습.ipynb")   # 일자 배치는 tools/layout.py 가 정한다
 
 nb = json.loads(NB.read_text(encoding="utf-8"))
 cells = ["".join(c.get("source", "")) for c in nb["cells"]]

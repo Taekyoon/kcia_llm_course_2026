@@ -550,6 +550,22 @@ MIGRATIONS: list[Migration] = [
              'JSON 형식으로만 출력하세요."""',
              "프롬프트 한국어화 — 고객별 요약. 원본은 'in English only' 로 못박혀 있었다"),
 
+        # ── 프롬프트에 넘기는 '내용' 도 한국어로 ──────────────────────
+        # 프롬프트 6종은 한국어로 바꿨는데, 정작 그 프롬프트에 붙여 보내는 본문이
+        # 영어 레이블이었다. 모델은 "Consumer Type:" 을 보고 영어로 답할 유인이 생긴다.
+        # 한국어화가 절반만 된 상태였다. 두 곳에 있고 문구가 미묘하게 다르다.
+        Rule(47,
+             'content = f"Consumer Type: {k}; Consumer Objectives: {v}; '
+             'Related Feature Summaries: {feature_summaries}"',
+             'content = f"구매자 유형: {k}\\n구매 목적: {v}\\n관련 특징 요약:\\n{feature_summaries}"',
+             "프롬프트에 넘기는 본문 레이블 한국어화 (단계별 확인용 셀)"),
+
+        Rule(53,
+             'content = f"Consumer Type: {k}; Consumer Objectives: {v}; '
+             'Feature Summaries: {feature_summaries}"',
+             'content = f"구매자 유형: {k}\\n구매 목적: {v}\\n제품 특징 요약:\\n{feature_summaries}"',
+             "프롬프트에 넘기는 본문 레이블 한국어화 (전체 파이프라인 셀)"),
+
         # 셀 5 (Taekyoon/test_amazon) 는 손대지 않는다.
         # HF 에 라이선스 표기가 없어 F-1 에서 교체 대상으로 올렸으나,
         # 강사 본인 계정의 데이터셋이라 이용 권한 판단은 소유자 몫이다.

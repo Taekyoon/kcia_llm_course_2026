@@ -8,10 +8,10 @@ PowerShell 로 확인하면 기본 인코딩(UTF-16) 때문에 한글이 깨져 
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
-NB = (Path(__file__).resolve().parent.parent
-      / "work" / "notebook" / "3일차" / "HPC_Amazon요약실습.ipynb")
+from layout import work_path
+
+NB = work_path("HPC_Amazon요약실습.ipynb")   # 일자 배치는 tools/layout.py 가 정한다
 
 ENGLISH_LEFTOVERS = [
     "in English only", "Objective:", "Key Considerations",
