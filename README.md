@@ -91,14 +91,20 @@ uv run python tools/migrate_notebooks.py             # 생성
 - `SFTConfig.max_seq_length` → `max_length`
 - `get_peft_model()` 선감싸기 → `peft_config=` 인자
 
-**vLLM** — structured output 방식 변경
+**vLLM** — structured output 방식 변경 (**조용히 무시되던 것**)
 - `guided_choice` → `structured_outputs`
 - `guided_json` → `response_format` (OpenAI 표준)
 - `python -m vllm.entrypoints.openai.api_server` → `vllm serve`
 
+> ⚠️ 구 파라미터는 **에러가 나지 않습니다.** vLLM 서버가 `extra_body` 의 모르는 필드를
+> 거부하지 않고 버리기 때문에, 제약 없이 자유 생성된 결과가 나옵니다.
+> `guided_choice` 에 선택지를 줘도 장문이, `guided_json` 에 스키마를 줘도 평문이 나옵니다.
+> **총 11곳이 이 상태였습니다.**
+
 **LlamaIndex** — 조용히 실패하던 코드 수정
 - `get_prompts()` 는 deepcopy 를 반환해 반환값을 고쳐도 **에러 없이 무시**됩니다.
   다시 출력하면 바뀐 것처럼 보여서 더 위험했습니다 → `update_prompts()` 로 교체
+  (실측 확인: 구 방식 반영 `False` / 신 방식 반영 `True`)
 
 **모델** — 라이선스 및 커리큘럼 정합성
 - `EXAONE-3.5` 는 **NC(비상업) 라이선스**라 상업 강의에 쓸 수 없습니다(4.0 도 NC).
