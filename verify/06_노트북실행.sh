@@ -101,6 +101,18 @@ for item in "${TARGETS[@]}"; do
     el=$(( $(date +%s) - t0 ))
     echo "   ✅ 완주 (${el}초)"
     PASS+=("$name")
+
+    # ⚠️ 완주 != 정상 동작.
+    # Amazon 요약은 각 스텝이 try/except 로 감싸여 있어 LLM 호출이 전부 실패해도
+    # 'error' 문자열을 반환하며 끝까지 진행된다. 결과물을 따로 봐야 한다.
+    nerr=$(grep -o "\"error\"" "$OUT/${name}.executed.ipynb" 2>/dev/null | wc -l)
+    if [ "$nerr" -gt 0 ]; then
+      echo "   ⚠️  출력에 'error' 가 ${nerr}회 나옵니다 — 예외를 삼키고 진행했을 수 있습니다."
+      echo "      확인: grep -n \"'error'\" $OUT/${name}.executed.ipynb | head"
+    fi
+    # 예외 흔적도 훑는다 (allow-errors 를 안 써서 보통은 없지만 삼켜진 것이 남는다)
+    ntb=$(grep -ci "traceback\|Error:" "$OUT/${name}.log" 2>/dev/null || echo 0)
+    [ "$ntb" -gt 0 ] && echo "   ⚠️  로그에 에러 흔적 ${ntb}줄 — $OUT/${name}.log 확인 권장"
   else
     el=$(( $(date +%s) - t0 ))
     echo "   ❌ 실패 (${el}초)"
