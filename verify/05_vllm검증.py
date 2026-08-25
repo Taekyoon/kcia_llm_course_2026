@@ -50,11 +50,32 @@ from openai import OpenAI  # noqa: E402
 
 client = OpenAI(api_key="EMPTY", base_url=BASE)
 
-served = probe("served_models", lambda: [m.id for m in client.models.list().data])
-if not served:
+# 서버 기동에는 모델 로딩·컴파일 때문에 수 분이 걸린다.
+# 한 번 실패하고 포기하면 "서버가 안 떴다"고 오해하게 되므로 준비될 때까지 기다린다.
+WAIT_SEC = 300
+print(f"서버 준비 대기 (최대 {WAIT_SEC}초)...")
+served = None
+t0 = time.time()
+while time.time() - t0 < WAIT_SEC:
+    try:
+        served = [m.id for m in client.models.list().data]
+        break
+    except Exception:  # noqa: BLE001
+        el = int(time.time() - t0)
+        print(f"  ...대기 중 ({el}초) — 모델 로딩에 3~6분 걸립니다", end="\r")
+        time.sleep(5)
+
+print(" " * 70, end="\r")
+if served:
+    R["served_models"] = {"ok": True, "detail": str(served)}
+    print(f"  [OK]   served_models: {served}  ({int(time.time()-t0)}초 만에 준비됨)")
+else:
     raise SystemExit(
-        "\n★ 서버에 붙지 못했습니다. 02_vllm_venv.sh 로 서버를 먼저 띄우세요.\n"
-        "   tail -n 100 /tmp/vllm.log 로 로그를 확인하고 회신해 주세요."
+        f"\n★ {WAIT_SEC}초 동안 서버에 붙지 못했습니다.\n"
+        "   1) 서버가 살아 있는지:  ps aux | grep 'vllm serve' | grep -v grep\n"
+        "   2) 로그 확인:           tail -n 100 /tmp/vllm.log\n"
+        "   3) 포트 확인:           curl -s http://localhost:8000/v1/models\n"
+        "   위 세 결과를 회신해 주세요."
     )
 
 probe("basic_chat", lambda: client.chat.completions.create(
