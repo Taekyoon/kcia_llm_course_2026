@@ -152,6 +152,37 @@ print(raw[0]["text"][:400])
 """)
 
 md("""
+### 원본을 먼저 눈으로 보세요
+
+위 출력에 이상한 것이 보입니다.
+
+```
+- Brand: F, a, t,  , S, h, a, r, k
+```
+
+`FatShark` 라는 브랜드명이 **글자 단위로 쪼개져** 있습니다. 데이터를 만들 때
+문자열을 문자 리스트로 잘못 다룬 흔적입니다. 실무 데이터에서 흔한 종류의 결함입니다.
+
+**이걸 못 보고 넘어가면** 번역기가 쪼개진 상태를 그대로 옮기고, 그 데이터로 학습한
+모델은 "브랜드명은 글자를 쉼표로 나눠 쓴다"고 배웁니다. 아무도 의도하지 않은 결과입니다.
+
+얼마나 있는지 세어봅시다.
+""")
+
+code(r"""
+import re
+
+# 'F, a, t' 처럼 한 글자 + 쉼표가 세 번 이상 이어지는 패턴
+split_name = re.compile(r"(?:[A-Za-z],\s+){2,}[A-Za-z]")
+
+hits = [i for i, r in enumerate(raw) if split_name.search(r["text"])]
+print(f"글자가 쉼표로 쪼개진 흔적: {len(hits)}/{len(raw)}건")
+for i in hits[:3]:
+    m = split_name.search(raw[i]["text"])
+    print(f"  [{i}] {m.group()!r}")
+""")
+
+md("""
 ### 번역 프롬프트에서 놓치기 쉬운 것
 
 그냥 "번역하세요" 라고 하면 **브랜드명과 모델명까지 한글로 옮깁니다.**
@@ -170,6 +201,8 @@ TRANSLATE_PROMPT = '''다음 영문 상품 설명을 한국어로 번역하세�
 2. 단위와 숫자는 그대로 둡니다. (10000mAh, 13-inch)
 3. 자연스러운 한국어 문장으로 옮깁니다. 직역투를 피하세요.
 4. 원문에 없는 내용을 만들어내지 마세요.
+5. 'F, a, t, S, h, a, r, k' 처럼 **글자가 쉼표로 쪼개진 고유명사**가 있으면
+   'FatShark' 로 붙여서 복원하세요. 원본 데이터의 결함입니다.
 
 JSON 으로만 답하세요.
 
@@ -659,19 +692,11 @@ if not valset:
 else:
     after_score = evaluate(optimized, valset)
 
-    print("=" * 72)
-    print("프롬프트가 어떻게 바뀌었나")
-    print("=" * 72)
-    print("[전]")
-    print(" ", START_INSTRUCTIONS)
-    print()
-    print("[후]")
-    for name, p in optimized.named_predictors():
-        print(" ", p.signature.instructions)
-    print()
+    # ★ 결론을 먼저 찍는다. 프롬프트 원문이 길어서 뒤에 두면 잘려 안 보인다.
     print("=" * 72)
     print(f"val 점수  {before_score:.3f}  →  {after_score:.3f}   "
           f"({after_score-before_score:+.3f})")
+    print(f"학습 0회 · LLM 호출 {MAX_CALLS}회로 얻은 차이입니다.")
     print("=" * 72)
     print()
     print("── 최적화 후 출력 ──")
@@ -681,6 +706,16 @@ else:
     print("  target_users:", r1.target_users)
     print()
     print("  채점 결과:", extract_metric(valset[0], r1).feedback)
+    print()
+    print("=" * 72)
+    print("프롬프트가 어떻게 바뀌었나")
+    print("=" * 72)
+    print("[전]")
+    print(" ", START_INSTRUCTIONS)
+    print()
+    print("[후]")
+    for name, p in optimized.named_predictors():
+        print(" ", p.signature.instructions)
 """)
 
 md("""
