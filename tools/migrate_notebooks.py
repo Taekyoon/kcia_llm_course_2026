@@ -128,6 +128,131 @@ WHY_CHAT = ("transformers 5: apply_chat_template 이 BatchEncoding 반환 → "
             "generate(input_ids=) 에서 AttributeError (실행 검증에서 확인)")
 
 
+# ---------------------------------------------------------------------------
+# DPO 노트북 뒤에 붙이는 ORPO 비교 섹션.
+#
+# 과정 전체가 "이런 방법이 있다" 의 나열로 끝나고 **언제 무엇을 고르는가** 가 없었다.
+# ORPO 는 DPO 와 같은 데이터(prompt/chosen/rejected)를 그대로 쓰면서 전제가 다르다 —
+# 그 대비가 선택 기준을 가르치기에 가장 좋다.
+#
+# 기본은 **실행하지 않는다.** 돌리면 DPO 만큼 GPU 시간이 더 든다.
+# import 도 가드 안에 둔다. 밖에 두면 trl 버전에 따라 노트북 전체가 죽는다.
+ORPO_SECTION = AppendCells(
+    after_cell=23,
+    why="ORPO 비교 섹션 추가 — 선호학습의 다른 선택지 (기본 미실행)",
+    cells=[
+        ("markdown", '''
+## 다른 선택지 — ORPO
+
+방금 한 DPO 에는 **숨은 전제**가 있습니다. 두 가지입니다.
+
+1. **SFT 를 먼저 마친 모델이 있어야 합니다.** DPO 는 "이미 말은 할 줄 아는 모델"을
+   사람 취향 쪽으로 미는 방법입니다. 아무것도 학습 안 된 베이스 모델에 바로 DPO 를
+   걸면 잘 안 됩니다.
+2. **참조 모델(reference model)이 필요합니다.** 학습 중인 모델이 원래 모델에서
+   너무 멀어지지 않게 붙잡아 두는 역할입니다. 그래서 메모리에 모델이 **두 개** 뜹니다.
+
+**ORPO** (Odds Ratio Preference Optimization) 는 이 두 전제를 모두 없앱니다.
+
+| | SFT | DPO | ORPO |
+|---|---|---|---|
+| 필요한 데이터 | 입력–정답 | prompt / chosen / rejected | prompt / chosen / rejected |
+| 시작 모델 | 베이스 | **SFT 완료 모델** | **베이스** |
+| 참조 모델 | 불필요 | **필요** (메모리 2배) | 불필요 |
+| 단계 수 | 1 | 2 (SFT → DPO) | **1** |
+
+### 어떻게 한 단계로 합치나
+
+ORPO 의 손실 함수는 두 항을 더한 것입니다.
+
+```
+loss = SFT 손실(chosen 을 그대로 따라 하기)
+     + λ · 승산비 항(chosen 이 rejected 보다 얼마나 더 그럴듯한가)
+```
+
+앞 항이 SFT 를, 뒤 항이 선호 학습을 담당합니다. 그래서 **한 번에 끝납니다.**
+뒤 항은 확률이 아니라 **승산(odds)** 의 비를 씁니다 — 확률로 직접 비교하는 것보다
+"조금 더 좋은 답" 과 "많이 더 좋은 답" 을 덜 과격하게 벌립니다.
+
+> 논문: Hong et al., *ORPO: Monolithic Preference Optimization without Reference Model* (2024)
+'''),
+        ("code", '''
+# ⚠️ 기본은 실행하지 않습니다. 돌리면 위 DPO 만큼 GPU 시간이 더 듭니다.
+#    코드가 어떻게 달라지는지 보는 것이 목적입니다. 직접 돌려보려면 True 로 바꾸세요.
+RUN_ORPO = False
+
+if not RUN_ORPO:
+    print("ORPO 학습은 건너뜁니다 (RUN_ORPO = False).")
+    print()
+    print("DPO 와 무엇이 다른지만 보세요:")
+    print()
+    print("  [DPO] SFT 된 모델에서 출발 + 참조 모델 필요")
+    print("      trainer = DPOTrainer(model=model, args=DPOConfig(...), ...)")
+    print()
+    print("  [ORPO] 베이스 모델에서 바로 출발 + 참조 모델 없음")
+    print("      trainer = ORPOTrainer(model=base, args=ORPOConfig(beta=0.1, ...), ...)")
+    print()
+    print("  데이터는 prompt / chosen / rejected 로 **완전히 같습니다.**")
+else:
+    # import 를 가드 안에 둔다. 밖에 두면 trl 버전이 안 맞을 때 노트북 전체가 죽는다.
+    from trl import ORPOTrainer, ORPOConfig
+    from transformers import AutoModelForCausalLM
+
+    # ★ DPO 때 쓰던 model 을 재사용하지 않는다. 그건 이미 학습된 것이라
+    #   "베이스에서 바로 시작한다" 는 ORPO 의 요점이 사라진다.
+    base = AutoModelForCausalLM.from_pretrained(
+        model_id, torch_dtype="auto", device_map="auto",
+    )
+
+    orpo_args = ORPOConfig(
+        beta=0.1,                 # 승산비 항의 가중치 λ. 크게 줄수록 선호를 세게 반영한다
+        output_dir="data/test_model_orpo",
+        num_train_epochs=1,
+        per_device_train_batch_size=2,
+        gradient_accumulation_steps=8,
+        learning_rate=3.0e-04,
+        lr_scheduler_type="cosine",
+        logging_steps=5,
+        save_strategy="no",
+        bf16=True,
+        report_to="none",
+    )
+
+    orpo_trainer = ORPOTrainer(
+        model=base,                       # 참조 모델 인자가 아예 없다
+        args=orpo_args,
+        train_dataset=train_dataset,      # DPO 와 같은 데이터를 그대로 쓴다
+        eval_dataset=eval_dataset,
+        processing_class=tokenizer,
+    )
+    orpo_trainer.train()
+'''),
+        ("markdown", '''
+### 그래서 언제 무엇을 쓰나
+
+정리하면 **가진 데이터가 방법을 정합니다.** 방법을 먼저 정하고 데이터를 맞추는 것이
+아닙니다.
+
+| 가진 것 | 방법 |
+|---|---|
+| 아무것도 없음 | 먼저 **프롬프트**를 끝까지 밀어붙인다 (2일차 프롬프트 최적화) |
+| 입력–정답 쌍 | **SFT** |
+| 좋은 답/나쁜 답 쌍 + SFT 완료 모델 | **DPO** |
+| 좋은 답/나쁜 답 쌍만 있고 SFT 는 아직 | **ORPO** — 한 단계로 끝낸다 |
+| 정답을 **검증하는 함수** (수학·코드·형식) | **GRPO** (다음 실습) |
+
+그리고 순서가 있습니다. **위에서부터 시도합니다.**
+프롬프트로 해결되면 학습하지 않습니다. 학습은 비싸고, 데이터를 모아야 하고,
+한 번 하면 유지보수가 따라붙습니다.
+
+> 2일차에 프롬프트만으로 점수를 얼마나 올렸는지 기억하시나요.
+> 학습이 사주는 것은 **그 위에 얹히는 만큼**입니다. 그 차이가 데이터를 모으고
+> GPU 를 돌릴 값어치가 있는지가 판단 기준입니다.
+'''),
+    ],
+)
+
+
 MIGRATIONS: list[Migration] = [
     # =====================================================================
     Migration("HPC_Classification실습.ipynb", [
@@ -279,7 +404,7 @@ MIGRATIONS: list[Migration] = [
              "trainer.processing_class.save_pretrained(output_dir)", WHY_TOKATTR),
         Rule(22, CHAT_TMPL_OLD, CHAT_TMPL_NEW, WHY_CHAT),
         Rule(22, GEN_OLD, GEN_NEW, WHY_CHAT),
-    ]),
+    ], appends=[ORPO_SECTION]),
 
     # =====================================================================
     Migration("HPC_GRPO실습.ipynb", [
