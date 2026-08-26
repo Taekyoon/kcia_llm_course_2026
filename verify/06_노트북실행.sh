@@ -161,16 +161,29 @@ for item in "${TARGETS[@]}"; do
     # grep -c 는 매치가 0이면 exit 1 이다. `|| echo 0` 을 붙이면 "0\n0" 이 되어
     # [ "$n" -gt 0 ] 이 integer expression expected 로 깨진다. 실제로 그렇게 만들었다.
     # grep 을 wc 로 받아 항상 숫자 하나가 나오게 한다.
-    count_in() { grep -o "$1" "$2" 2>/dev/null | wc -l | tr -d ' '; }
-
-    nerr=$(count_in "\"error\"" "$OUT/${name}.executed.ipynb")
-    if [ "${nerr:-0}" -gt 0 ]; then
-      echo "   ⚠️  출력에 'error' 가 ${nerr}회 — 예외를 삼키고 진행했을 수 있습니다."
-    fi
-    ntb=$(count_in "Traceback" "$OUT/${name}.executed.ipynb")
-    if [ "${ntb:-0}" -gt 0 ]; then
-      echo "   ⚠️  Traceback 흔적 ${ntb}회 — 셀 안에서 잡힌 예외가 있습니다."
-    fi
+    # ★ 파일 전체를 grep 하면 **소스 코드까지** 세어 오탐이 난다.
+    #   Amazon 노트북은 finish_reason 가드 때문에 소스에 'error' 가 14번 나온다.
+    #   실제로 봐야 하는 것은 **셀 출력**뿐이므로 JSON 을 파싱해서 거기만 센다.
+    python - "$OUT/${name}.executed.ipynb" <<'PYCHK'
+import json, sys
+nb = json.loads(open(sys.argv[1], encoding="utf-8").read())
+out_text = []
+for c in nb.get("cells", []):
+    for o in c.get("outputs", []):
+        out_text.append(str(o.get("text", "")))
+        out_text.append(str(o.get("data", {}).get("text/plain", "")))
+        out_text.append(str(o.get("ename", "")) + str(o.get("evalue", "")))
+        out_text += [str(x) for x in o.get("traceback", [])]
+blob = " ".join(out_text)   # 구분자는 중요하지 않다. 세기만 하면 된다
+n_err = blob.count("'error'") + blob.count('"error"')
+n_tb = blob.count("Traceback")
+if n_err:
+    print(f"   ⚠️  출력에 'error' 가 {n_err}회 — 예외를 삼키고 진행했을 수 있습니다.")
+if n_tb:
+    print(f"   ⚠️  Traceback 흔적 {n_tb}회 — 셀 안에서 잡힌 예외가 있습니다.")
+if not n_err and not n_tb:
+    print("   출력에 error/Traceback 흔적 없음")
+PYCHK
     echo "   출력 확인: python tools/show_nb_outputs.py $OUT/${name}.executed.ipynb"
   else
     el=$(( $(date +%s) - t0 ))

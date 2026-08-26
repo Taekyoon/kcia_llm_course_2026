@@ -229,7 +229,11 @@ val   = [dspy.Example(text=t).with_inputs("text") for t in SAMPLES[6:]]
 class Extract2(dspy.Signature):
     """정보를 뽑는다."""          # ← 일부러 부실하게. 개선 여지를 남긴다
     text: str = dspy.InputField()
-    result: str = dspy.OutputField()
+    # 출력 **형식**은 고정한다. 옵티마이저가 키 이름을 알아맞히게 하면
+    # "무엇을 원하는지 안 알려주고 맞혀보라" 가 되어 개선이 안 난다 (실측으로 확인).
+    category: str = dspy.OutputField()
+    features: list[str] = dspy.OutputField()
+    target_users: list[str] = dspy.OutputField()
 
 # ★ 첫 시도에서 이 테스트를 너무 쉽게 만들어 **아무것도 검증하지 못했다.**
 #   시작 프로그램이 곧바로 1.0 을 받아 GEPA 가
@@ -239,28 +243,27 @@ class Extract2(dspy.Signature):
 #
 #   그래서 노트북 3막과 **같은 난이도**로 맞춘다 — 부실한 시작 프롬프트로는
 #   만족시킬 수 없는 형식 요구를 걸어 개선 여지를 확보한다.
-REQ = ["category", "features", "target_users"]
 HANGUL = re.compile(r"[가-힣]")
 
 def metric(gold, pred, trace=None, pred_name=None, pred_trace=None):
-    raw = (getattr(pred, "result", "") or "").strip()
-    try:
-        obj = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        return dspy.Prediction(score=0.0,
-            feedback="JSON 파싱 실패. 코드블록이나 설명 없이 JSON 객체만 출력해야 함")
-    if not isinstance(obj, dict):
-        return dspy.Prediction(score=0.0, feedback="최상위가 JSON 객체가 아님")
+    cat   = str(getattr(pred, "category", "") or "").strip()
+    feats = getattr(pred, "features", None) or []
+    users = getattr(pred, "target_users", None) or []
+    feats = [str(x).strip() for x in feats] if isinstance(feats, list) else []
+    users = [str(x).strip() for x in users] if isinstance(users, list) else []
 
-    bad = [f"필수 키 '{k}' 누락" for k in REQ if k not in obj]
-    for k in ["features", "target_users"]:
-        if k in obj and not (isinstance(obj[k], list) and obj[k]):
-            bad.append(f"{k} 는 비어 있지 않은 배열이어야 함")
-    body = json.dumps(obj, ensure_ascii=False)
-    if len(HANGUL.findall(body)) / max(len(body), 1) < 0.15:
-        bad.append("값이 한국어가 아님. 한국어로 작성해야 함")
+    bad = []
+    if not cat:                bad.append("category 가 비었다")
+    elif len(cat) > 25:        bad.append("category 가 너무 길다. 한두 단어여야 한다")
+    if len(feats) < 3:         bad.append(f"features 가 {len(feats)}개뿐이다. 3개 이상 필요")
+    if len(users) < 2:         bad.append(f"target_users 가 {len(users)}개뿐이다. 2개 이상 필요")
+    if any(len(f) > 50 for f in feats):
+        bad.append("features 항목이 너무 길다. 문장이 아니라 짧은 구로")
+    body = " ".join([cat] + feats + users)
+    if body and len(HANGUL.findall(body)) / max(len(body), 1) < 0.15:
+        bad.append("값이 한국어가 아니다")
 
-    return dspy.Prediction(score=max(0.0, 1.0 - 0.25 * len(bad)),
+    return dspy.Prediction(score=max(0.0, 1.0 - 0.2 * len(bad)),
                            feedback="; ".join(bad) or "정상")
 
 def score(p):
@@ -270,8 +273,14 @@ CALLS = 60      # 실측용. 강의 노트북에서는 120 을 쓸 예정이다.
 print(f"\n  GEPA compile 시작 — max_metric_calls={CALLS}")
 t0 = time.time()
 try:
+    # reflection 은 프롬프트를 통째로 새로 쓰므로 출력이 task 보다 훨씬 길다.
+    # task LM(max_tokens=512)을 그대로 넘겼더니 제안이 잘려 통째로 버려졌다:
+    #   "LM response was truncated due to exceeding max_tokens=512"
+    reflection_lm = dspy.LM(f"openai/{MODEL}", api_base=BASE, api_key="dummy",
+                            model_type="chat", temperature=1.0,
+                            max_tokens=4096, cache=False)
     opt = GEPA(metric=metric, max_metric_calls=CALLS,
-               reflection_lm=lm, num_threads=8, track_stats=True)
+               reflection_lm=reflection_lm, num_threads=8, track_stats=True)
     base_prog = dspy.Predict(Extract2)
     before = score(base_prog)
     print(f"  최적화 전 val 점수: {before:.3f}")

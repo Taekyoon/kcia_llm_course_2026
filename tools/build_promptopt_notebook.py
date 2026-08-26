@@ -141,8 +141,8 @@ md("""
 code("""
 from datasets import load_dataset
 
-N_TRANSLATE = 30          # 강의 시간에 맞춘 분량. 한 건에 2~4초 걸린다
-MAX_CHARS   = 1200        # 상품 설명이 길면 잘라 쓴다. 번역 시간이 길이에 비례한다
+N_TRANSLATE = 20          # 실측 기준 이 분량이면 번역이 2~3분이다
+MAX_CHARS   = 800         # 번역 시간은 길이에 비례한다. 원문을 잘라 쓴다
 
 raw = load_dataset("Taekyoon/test_amazon", split=f"train[:{N_TRANSLATE}]")
 print(raw)
@@ -251,7 +251,7 @@ md("""
 
 # 2막. 품질을 어떻게 재나
 
-번역을 30건 만들었습니다. **이걸 그대로 학습에 쓰면 될까요?**
+번역을 20건 만들었습니다. **이걸 그대로 학습에 쓰면 될까요?**
 
 몇 건은 분명 엉망일 겁니다. 그런데 30건은 사람이 다 읽을 수 있어도
 3만 건은 못 읽습니다. 자동으로 걸러야 합니다.
@@ -455,20 +455,30 @@ print(lm("한국의 수도는? 한 단어로만.")[0][:80])
 """)
 
 md("""
-### 시작 프롬프트는 일부러 부실하게
+### 무엇을 고정하고 무엇을 최적화할까
 
-`"정보를 추출한다."` 한 줄로 시작합니다.
+**출력 형식은 고정하고, 지시문만 최적화합니다.**
 
-일부러 그러는 것입니다. 잘 쓴 프롬프트에서 시작하면 개선 여지가 없어
-최적화 전후 차이가 안 보입니다. 그리고 **사람들이 처음 쓰는 프롬프트가 실제로 이렇습니다.**
+`category`, `features`, `target_users` — 어떤 항목을 낼지는 우리가 정합니다.
+이건 요구사항이지 최적화 대상이 아닙니다. 옵티마이저가 이걸 알아맞히게 하면
+"무엇을 원하는지도 안 알려주고 맞혀보라"는 셈이 됩니다.
+
+최적화하는 것은 **지시문** — `"정보를 추출한다."` 한 줄입니다.
+같은 형식을 요구해도 *어떻게 채우라고 말하느냐*에 따라 결과가 크게 달라집니다.
+
+시작 문장을 일부러 부실하게 둡니다. 잘 쓴 프롬프트에서 출발하면 개선 여지가 없어
+전후 차이가 안 보이고, **사람들이 처음 쓰는 프롬프트가 실제로 이렇습니다.**
 """)
 
 code("""
 class ExtractProduct(dspy.Signature):
-    '''정보를 추출한다.'''          # ← 시작 프롬프트. GEPA 가 이걸 고쳐 나간다
+    '''정보를 추출한다.'''          # ← 시작 프롬프트. GEPA 가 이 문장을 고쳐 나간다
 
     text: str = dspy.InputField()
-    result: str = dspy.OutputField()
+    # 출력 **형식**은 여기서 못박는다. 최적화 대상이 아니다.
+    category: str = dspy.OutputField()
+    features: list[str] = dspy.OutputField()
+    target_users: list[str] = dspy.OutputField()
 
 program = dspy.Predict(ExtractProduct)
 
@@ -481,8 +491,18 @@ md("""
 ### metric — 판정에 LLM 을 끼우지 않는다
 
 무엇을 만족해야 "잘한 것" 인지 코드로 적습니다.
-JSON 으로 파싱되는가, 필수 항목이 있는가, 한국어로 답했는가.
 **전부 프로그램이 판정하므로 노이즈가 0입니다.**
+
+| 보는 것 | 왜 |
+|---|---|
+| `features` 3개 이상 | 하나만 뽑고 마는 것을 막는다 |
+| `target_users` 2개 이상 | 같은 이유 |
+| 항목이 50자 이하 | 문장을 통째로 복사하는 것을 막는다 |
+| 항목의 단어가 **원문에 있는가** | 지어낸 내용을 막는다 |
+| 한국어인가 | 입력이 한국어인데 영어로 답하는 경우가 있다 |
+| `category` 가 25자 이하 | 분류명이지 설명이 아니다 |
+
+전부 **입력과 출력만 보고 코드로 판정**됩니다. 채점하는 LLM 이 없습니다.
 
 그리고 GEPA 는 점수만 받지 않습니다. **`feedback` 문자열**을 함께 받아서
 "무엇이 틀렸는지" 를 reflection 모델에게 알려줍니다. 이게 GEPA 의 핵심 채널이라
@@ -494,42 +514,56 @@ code("""
 import json
 import re
 
-REQUIRED = ["category", "features", "target_users"]
+MIN_FEATURES = 3
+MIN_USERS    = 2
 HANGUL = re.compile(r"[가-힣]")
 
 
+def _tokens(x):
+    return re.findall(r"[A-Za-z0-9]{2,}|[가-힣]{2,}", str(x))
+
+
 def extract_metric(gold, pred, trace=None, pred_name=None, pred_trace=None):
-    '''프로그램 검증 metric. GEPA 는 5인자 시그니처를 쓰고 Prediction 을 받는다.'''
-    raw_out = (getattr(pred, "result", "") or "").strip()
+    '''프로그램 검증 metric. 판정에 LLM 이 끼지 않으므로 노이즈가 0이다.
 
-    # 코드블록으로 감싸는 것은 흔한 실패다. 벗겨내지 않고 감점한다 —
-    # 그래야 GEPA 가 "감싸지 마라" 를 프롬프트에 넣을 이유가 생긴다.
-    try:
-        obj = json.loads(raw_out)
-    except (json.JSONDecodeError, TypeError):
-        return dspy.Prediction(
-            score=0.0,
-            feedback="JSON 파싱 실패. 코드블록이나 설명 없이 JSON 객체만 출력해야 함")
-
-    if not isinstance(obj, dict):
-        return dspy.Prediction(score=0.0, feedback="최상위가 JSON 객체가 아님")
+    GEPA 는 5인자 시그니처를 쓰고 Prediction(score=, feedback=) 을 받는다.
+    feedback 문자열이 reflection 모델에 전달되는 **핵심 채널**이라 구체적으로 쓴다.
+    '''
+    src   = gold.text
+    cat   = str(getattr(pred, "category", "") or "").strip()
+    feats = getattr(pred, "features", None) or []
+    users = getattr(pred, "target_users", None) or []
+    feats = [str(x).strip() for x in feats] if isinstance(feats, list) else []
+    users = [str(x).strip() for x in users] if isinstance(users, list) else []
 
     problems = []
-    for k in REQUIRED:
-        if k not in obj:
-            problems.append(f"필수 키 '{k}' 누락")
-    for k in ["features", "target_users"]:
-        if k in obj:
-            if not isinstance(obj[k], list):
-                problems.append(f"{k} 는 배열이어야 함")
-            elif not obj[k]:
-                problems.append(f"{k} 가 빈 배열")
 
-    body = json.dumps(obj, ensure_ascii=False)
-    if len(HANGUL.findall(body)) / max(len(body), 1) < 0.15:
-        problems.append("값이 한국어가 아님. 한국어로 작성해야 함")
+    if not cat:
+        problems.append("category 가 비었다")
+    elif len(cat) > 25:
+        problems.append(f"category 가 {len(cat)}자로 길다. 한두 단어의 분류명이어야 한다")
 
-    score = max(0.0, 1.0 - 0.25 * len(problems))
+    if len(feats) < MIN_FEATURES:
+        problems.append(f"features 가 {len(feats)}개뿐이다. {MIN_FEATURES}개 이상 뽑아야 한다")
+    if len(users) < MIN_USERS:
+        problems.append(f"target_users 가 {len(users)}개뿐이다. {MIN_USERS}개 이상이어야 한다")
+
+    long_feats = [f for f in feats if len(f) > 50]
+    if long_feats:
+        problems.append(f"features 항목이 너무 길다(예: {long_feats[0][:30]}...). "
+                        "문장이 아니라 짧은 구로 써야 한다")
+
+    # 원문에 없는 내용을 지어냈는지 본다. 토큰이 하나도 원문에 없으면 근거가 없는 것이다.
+    ungrounded = [f for f in feats if not any(t in src for t in _tokens(f))]
+    if feats and len(ungrounded) > len(feats) // 2:
+        problems.append(f"features 상당수가 원문에 없는 내용이다(예: {ungrounded[0][:30]}). "
+                        "원문에 실제로 있는 것만 뽑아야 한다")
+
+    body = " ".join([cat] + feats + users)
+    if body and len(HANGUL.findall(body)) / max(len(body), 1) < 0.15:
+        problems.append("값이 한국어가 아니다. 한국어로 작성해야 한다")
+
+    score = max(0.0, 1.0 - 0.2 * len(problems))
     return dspy.Prediction(score=score, feedback="; ".join(problems) or "정상")
 """)
 
@@ -565,7 +599,12 @@ if valset:
     print(f"최적화 전 val 점수: {before_score:.3f}")
     print()
     print("── 지금 뭘 내놓는지 ──")
-    print(program(text=valset[0].text).result[:300])
+    r0 = program(text=valset[0].text)
+    print("  category    :", r0.category)
+    print("  features    :", r0.features)
+    print("  target_users:", r0.target_users)
+    print()
+    print("  채점 결과:", extract_metric(valset[0], r0).feedback)
 """)
 
 md("""
@@ -583,10 +622,22 @@ MAX_CALLS = 120        # verify/07_dspy설치.sh 실측을 근거로 정한 값
 
 if len(trainset) >= 5:
     t0 = time.time()
+    # ★ reflection 은 프롬프트를 **통째로 새로 쓰는** 일이라 task 보다 출력이 훨씬 길다.
+    #   task LM(max_tokens=1024)을 그대로 넘겼더니 제안이 중간에서 잘렸다:
+    #     "LM response was truncated due to exceeding max_tokens=512"
+    #   잘린 제안은 통째로 버려지므로 최적화가 헛돈다. 별도 LM 으로 분리한다.
+    reflection_lm = dspy.LM(
+        f"openai/{MODEL}", api_base=BASE, api_key="EMPTY",
+        model_type="chat",
+        temperature=1.0,   # 공식 권장. 다양한 제안이 나와야 한다
+        max_tokens=4096,   # ★ 여기가 핵심
+        cache=False,
+    )
+
     optimizer = dspy.GEPA(
         metric=extract_metric,
         max_metric_calls=MAX_CALLS,
-        reflection_lm=lm,      # 같은 4B 를 쓴다. 아래 주의 참고
+        reflection_lm=reflection_lm,
         num_threads=8,
         track_stats=True,
     )
@@ -617,7 +668,12 @@ if valset:
     print("=" * 72)
     print()
     print("── 최적화 후 출력 ──")
-    print(optimized(text=valset[0].text).result[:300])
+    r1 = optimized(text=valset[0].text)
+    print("  category    :", r1.category)
+    print("  features    :", r1.features)
+    print("  target_users:", r1.target_users)
+    print()
+    print("  채점 결과:", extract_metric(valset[0], r1).feedback)
 """)
 
 md("""
@@ -629,6 +685,11 @@ md("""
 "작은 모델을 최적화할 때는 **더 큰 모델을 reflection_lm 으로** 쓰라" 입니다.
 프롬프트를 고쳐 쓰는 쪽이 고쳐질 쪽보다 똑똑해야 개선이 나오는데,
 지금은 같은 모델이 자기 프롬프트를 고치고 있습니다.
+
+실제로 처음 만들 때 이것 때문에 한 번 실패했습니다. reflection LM 의 `max_tokens` 를
+task 와 같은 값으로 뒀더니 **제안이 중간에서 잘려** 통째로 버려졌습니다
+(`LM response was truncated`). 프롬프트를 새로 쓰는 일은 출력이 훨씬 길다는 것을
+놓친 겁니다. 지금은 별도 LM 으로 분리해 `max_tokens=4096` 을 줍니다.
 
 GPU 한 장에 4B 하나만 띄울 수 있어서 이렇게 했습니다.
 실무에서는 **task 는 작은 모델, reflection 은 큰 모델** 로 나눕니다.
