@@ -15,7 +15,7 @@
 
 | | |
 |---|---|
-| 만드는 법 | `python tools/build_amazon_pregen.py --n 300` (vLLM 필요) |
+| 만드는 법 | `python tools/build_amazon_pregen.py` (vLLM 필요, 약 8분) |
 | 원본 | `Taekyoon/test_amazon` 의 영문 상품 설명 |
 | 생성 | `Qwen/Qwen3-4B-Instruct-2507` 로 7단계 파이프라인 |
 | 형식 | `{"instruction": ..., "output": ...}` JSONL, gzip |
@@ -38,9 +38,15 @@
 직접 가져오므로, 노트북만 고치면 됩니다. 복사본이 따로 있지 않습니다.
 
 ```bash
-python tools/build_amazon_pregen.py --n 300            # 처음부터
-python tools/build_amazon_pregen.py --n 300 --resume   # 중단된 것 이어받기
+python tools/build_amazon_pregen.py --workers 6            # 처음부터
+python tools/build_amazon_pregen.py --workers 6 --resume   # 중단된 것 이어받기
 ```
+
+**실측 (2026-08-26)**: 100건에 **7.7분** (동시 6). 학습 예시 **799건 · 107KB**.
+3건은 생성 중 출력이 잘려 제외됐다(3%). 상품 설명이 유난히 긴 것들이다 —
+`max_tokens` 를 올리면 줄일 수 있으나 시간이 늘어난다. 799건이면 실습에 충분하다.
+
+> `Taekyoon/test_amazon` 의 train split 은 **100건이 전부**다. `--n` 을 더 줘도 늘지 않는다.
 
 ### 원본 데이터에 대해
 

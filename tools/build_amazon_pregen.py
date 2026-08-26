@@ -145,14 +145,27 @@ def run_one(ns: dict, text: str) -> dict:
     """
     row = {"text": text}
 
+    def step(name, fn, *a):
+        """단계 이름을 붙여 실패를 드러낸다.
+
+        헬퍼는 잘림이나 API 오류 때 'error' 를 돌려준다. 그대로 두면 다음 단계의
+        json.loads 가 "Expecting value: line 1 column 1" 로 죽어서
+        **어느 단계가 문제였는지 묻힌다.** 여기서 잡아 이름을 붙인다.
+        """
+        out = fn(*a)
+        if out == "error":
+            raise RuntimeError(f"{name} 단계 실패 (출력 잘림 또는 API 오류)")
+        return out
+
     # Step 1~4
-    row["feature_type_list_str"] = ns["gen_text_step_1"](text)
-    row["subsection_list_str"] = ns["gen_text_step_2"](row["feature_type_list_str"])
-    row["extracted_feature_list_str"] = ns["gen_text_step_3"](
+    row["feature_type_list_str"] = step("Step1 속성종류", ns["gen_text_step_1"], text)
+    row["subsection_list_str"] = step("Step2 그룹화", ns["gen_text_step_2"],
+                                      row["feature_type_list_str"])
+    row["extracted_feature_list_str"] = step(
+        "Step3 값추출", ns["gen_text_step_3"],
         "Provided Features:" + chr(10) * 2 + row["feature_type_list_str"]
-        + chr(10) * 2 + text
-    )
-    row["user_category_list_str"] = ns["gen_text_step_4"](text)
+        + chr(10) * 2 + text)
+    row["user_category_list_str"] = step("Step4 구매자유형", ns["gen_text_step_4"], text)
 
     # Step 5 — 속성값을 그룹으로 묶는다
     row["feature_map"] = json.dumps({
@@ -203,7 +216,8 @@ def to_records(ns: dict, rows: list[dict]) -> list[dict]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Amazon 사전생성 (강사용, 1회 실행)")
-    ap.add_argument("--n", type=int, default=300, help="생성할 상품 수 (기본 300)")
+    ap.add_argument("--n", type=int, default=100,
+                    help="생성할 상품 수. Taekyoon/test_amazon 은 100건이 전부다")
     ap.add_argument("--workers", type=int, default=4,
                     help="동시 처리 상품 수. vLLM 이 배치로 처리하므로 4~8 이 적당")
     ap.add_argument("--base", default="http://localhost:8000/v1")

@@ -511,6 +511,26 @@ TRUNC_OLD = "        return completion.choices[0].message.content\n    except Ex
 TRUNC_NEW = '        # 길이 상한에 걸리면 JSON 이 중간에서 끊긴다. 그런데 API 는 **성공으로**\n        # 응답하므로 아래 except 에 걸리지 않고, 몇 셀 뒤에서 json.loads 가\n        # "Unterminated string" 으로 죽는다. 원인에서 먼 곳에서 터지는 것이 가장 나쁘다.\n        if completion.choices[0].finish_reason == "length":\n            print("[잘림] 출력이 max_tokens 에 걸렸습니다. "\n                  "스키마의 max_length 나 max_tokens 를 늘려야 합니다.")\n            return \'error\'\n        return completion.choices[0].message.content\n    except Exception as e:\n        print(e)\n        return \'error\''
 
 
+# 중복 제거 — 실제 개행이 든 상수로 둔다 (백슬래시 이스케이프 회피, CLAUDE.md §12)
+SFT_DEDUP_OLD = 'raw_datasets = load_dataset("json", data_files=[str(p) for p in paths])'
+
+SFT_DEDUP_NEW = SFT_DEDUP_OLD + """
+
+    # 어제 직접 만든 10건은 강사 사전생성본 안에 이미 들어 있다.
+    # 그대로 합치면 앞쪽 상품이 두 번 학습된다. 같은 (instruction, output) 은 하나만 남긴다.
+    from datasets import Dataset, DatasetDict
+
+    _rows, _seen = [], set()
+    for r in raw_datasets["train"]:
+        key = (r["instruction"], r["output"])
+        if key not in _seen:
+            _seen.add(key)
+            _rows.append({"instruction": r["instruction"], "output": r["output"]})
+    _dup = len(raw_datasets["train"]) - len(_rows)
+    raw_datasets = DatasetDict({"train": Dataset.from_list(_rows)})
+    if _dup:
+        print(f"  겹치는 {_dup}건은 하나로 합쳤습니다")"""
+
 # 토큰 길이 확인 — 백슬래시 이스케이프를 쓰지 않으려고 실제 개행이 든 상수로 둔다.
 # (여러 겹 문자열을 거치며 백슬래시가 사라지는 사고를 여러 번 겪었다. CLAUDE.md §12)
 SFT_SPLIT_OLD = """# create the splits
@@ -704,6 +724,9 @@ MIGRATIONS: list[Migration] = [
              'test_indices = range(n_train, n_train + n_test)\n'
              'print(f"전체 {n_all:,}건 → 학습 {n_train:,} / 평가 {n_test}")',
              "건수 하드코딩 제거 — 데이터 크기가 바뀌면 select 가 깨진다 (Phase E)"),
+        Rule(5, SFT_DEDUP_OLD, SFT_DEDUP_NEW,
+             "직접 만든 10건이 사전생성본에 이미 들어 있어 중복 학습된다 (Phase E)"),
+
         Rule(15, SFT_SPLIT_OLD, SFT_SPLIT_NEW,
              "학습 전 토큰 길이 확인 — 잘리면 정답이 날아가고 조용히 실패한다 (Phase E)"),
 
