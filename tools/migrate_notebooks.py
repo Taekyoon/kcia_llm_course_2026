@@ -129,6 +129,90 @@ WHY_CHAT = ("transformers 5: apply_chat_template 이 BatchEncoding 반환 → "
 
 
 # ---------------------------------------------------------------------------
+# Amazon 노트북 끝에 붙이는 **구조 확인** 셀.
+#
+# 왜 필요한가: summary_by_users / summary_by_subsection 의 **안쪽** 구조가
+# 코드만 봐서는 확정되지 않는다. gen_text_featured_summary 가 돌려준 문자열을
+# 다시 json.dumps 로 감싸는 이중 인코딩이라, 안쪽 키가 무엇인지는 프롬프트가
+# 결정하고 스키마로 강제되지 않는다.
+#
+# 학습용 JSONL 변환 코드(D-3)를 실행 결과 없이 쓰면 조용히 0건이 나온다.
+# 그래서 변환 셀보다 **먼저** 구조를 찍는 셀을 둔다. 이 출력을 보고 변환을 확정한다.
+AMAZON_PROBE = AppendCells(
+    after_cell=55,
+    why="산출물 구조 확인 셀 — 학습 데이터 변환(D-3)을 쓰기 전에 실제 형태를 본다",
+    cells=[
+        ("markdown", '''
+---
+
+## 산출물 구조 확인
+
+지금까지 7단계를 거쳐 `output_data` 를 만들었습니다.
+이걸 **다음 실습의 학습 데이터로** 쓰려면 형태를 정확히 알아야 합니다.
+
+특히 `summary_by_users` 와 `summary_by_subsection` 은 **JSON 문자열 안에 또 JSON 문자열**이
+들어 있는 구조입니다. `json.loads` 를 두 번 해야 값에 닿습니다.
+
+> 이 셀은 눈으로 확인하기 위한 것입니다. 출력이 예상과 다르면 앞 단계에서
+> 무언가 실패한 것입니다 — 다음 단계로 넘어가기 전에 여기서 잡아야 합니다.
+'''),
+        ("code", '''
+import json
+
+print("컬럼:", output_data.column_names)
+print("행 수:", len(output_data))
+print()
+
+row = output_data[0]
+
+for col in ["summary_by_subsection", "summary_by_users"]:
+    print("=" * 72)
+    print(f"[{col}]")
+    print("=" * 72)
+    v = row[col]
+    print(f"  1차 타입: {type(v).__name__}")
+
+    try:
+        outer = json.loads(v) if isinstance(v, str) else v
+    except (json.JSONDecodeError, TypeError) as e:
+        print(f"  ★ 1차 파싱 실패: {type(e).__name__} — 앞 단계가 실패했을 수 있습니다")
+        print(f"     원문 앞부분: {str(v)[:200]}")
+        continue
+
+    print(f"  1차 파싱 후: {type(outer).__name__}, 키 {list(outer)[:6]}")
+
+    if isinstance(outer, dict) and outer:
+        k = next(iter(outer))
+        inner_raw = outer[k]
+        print(f"  값 타입: {type(inner_raw).__name__}")
+        print(f"  값 원문(앞 200자): {str(inner_raw)[:200]}")
+
+        # ★ 여기가 핵심. 안쪽이 또 JSON 문자열인지, 어떤 키를 갖는지.
+        try:
+            inner = json.loads(inner_raw) if isinstance(inner_raw, str) else inner_raw
+            if isinstance(inner, dict):
+                print(f"  2차 파싱 성공 → dict, 키 {list(inner)}")
+                for ik, iv in list(inner.items())[:2]:
+                    print(f"     {ik}: {str(iv)[:150]}")
+            else:
+                print(f"  2차 파싱 성공 → {type(inner).__name__}: {str(inner)[:150]}")
+        except (json.JSONDecodeError, TypeError):
+            # 'error' 문자열이 json.dumps 로 감싸이면 파싱은 되고 문자열이 나온다.
+            # 여기 걸린다는 것은 애초에 JSON 이 아니라는 뜻이다.
+            print("  2차 파싱 불가 — 안쪽은 평문입니다")
+    print()
+
+# 실패한 건이 얼마나 되는지 센다. 'error' 는 파싱을 통과하므로 문자열로 직접 본다.
+bad = sum(1 for r in output_data
+          if "error" in str(r["summary_by_users"])[:40]
+          or "error" in str(r["summary_by_subsection"])[:40])
+print(f"제외 대상(생성 실패로 보이는 행): {bad} / {len(output_data)}")
+'''),
+    ],
+)
+
+
+# ---------------------------------------------------------------------------
 # DPO 노트북 뒤에 붙이는 ORPO 비교 섹션.
 #
 # 과정 전체가 "이런 방법이 있다" 의 나열로 끝나고 **언제 무엇을 고르는가** 가 없었다.
@@ -729,7 +813,7 @@ MIGRATIONS: list[Migration] = [
                    'response_format={"type": "json_schema", "json_schema":\n'
                    '                  {"name": "summary", "schema": summary_schema}},',
                    "guided_json 제거 → response_format (Step 6·7)", 2),
-    ]),
+    ], appends=[AMAZON_PROBE]),
 
     # =====================================================================
     Migration("HPC_BM25_RAG실습.ipynb", [
