@@ -252,9 +252,35 @@ output      : 그 유형에 대해 만든 요약
    그러면 `obj["summary"]` 에서 `KeyError` 가 아니라 **`TypeError`** 가 납니다.
 3. **상품 설명을 잘라야 합니다.** SFT 의 `max_length` 에 걸리면 **정답이 잘려나가고**
    loss 는 낮은데 아무것도 안 배우는 상태가 됩니다. 조용히 실패하는 종류입니다.
+4. **원본의 고유명사가 깨져 있습니다.** `- Brand: F, a, t,  , S, h, a, r, k` 처럼
+   글자가 쉼표로 쪼개져 있습니다. 이대로 학습시키면 모델이 그 패턴을 배웁니다.
+   붙여서 복원하고 넣습니다.
 '''),
         ("code", '''
 MAX_SRC = 1200   # 상품 설명을 이만큼만 쓴다. 내일 SFT 의 max_length 에 여유를 둔다
+
+
+def restore_split_names(text):
+    """글자가 쉼표로 쪼개진 값을 붙인다.
+
+        - Brand: F, a, t,  , S, h, a, r, k   ->   - Brand: Fat Shark
+
+    원본 데이터의 결함이다. 이대로 학습시키면 모델이
+    "브랜드명은 글자를 쉼표로 나눠 쓴다" 를 배운다.
+
+    조각이 3개 이상이고 **전부 한 글자 이하**일 때만 고친다.
+    'color, size, weight' 같은 정상 목록은 건드리지 않는다.
+    """
+    out = []
+    for line in text.splitlines(keepends=True):
+        head, sep, val = line.partition(":")
+        if sep and head.lstrip().startswith("-"):
+            parts = [q.strip() for q in val.split(",")]
+            if len(parts) >= 3 and all(len(q) <= 1 for q in parts):
+                tail = val[len(val.rstrip()):]          # 줄 끝 개행을 보존한다
+                line = head + ": " + "".join(q or " " for q in parts).strip() + tail
+        out.append(line)
+    return "".join(out)
 
 
 def unwrap(raw):
@@ -282,7 +308,7 @@ TEMPLATES = [
 records, dropped = [], 0
 
 for row in output_data:
-    src = row["text"][:MAX_SRC]
+    src = restore_split_names(row["text"])[:MAX_SRC]
     for col, tmpl in TEMPLATES:
         try:
             outer = json.loads(row[col])
