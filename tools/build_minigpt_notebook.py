@@ -898,7 +898,8 @@ md("""
 **LR 을 낮추면 망각이 줄고, 높이면 새 도메인에 빨리 적응한다.** 트레이드오프입니다.
 
 > 참고로 같은 논문이 warmup 길이(0 / 0.5 / 1 / 2%)도 비교했는데 **망각에도 적응에도
-> 영향이 없었습니다.** warmup 은 튜닝할 대상이 아닙니다. 관례대로 1% 만 줍니다.
+> 영향이 없었습니다.** warmup 은 튜닝할 대상이 아닙니다. 여기서는 아예 주지 않습니다 —
+> transformers 5 에서 `warmup_ratio` 인자 자체가 사라지기도 했습니다.
 """)
 
 code("""
@@ -919,7 +920,8 @@ def run_cpt(replay_ratio):
         learning_rate=CPT_LR,
         lr_scheduler_type="cosine_with_min_lr",
         lr_scheduler_kwargs={"min_lr_rate": 0.1},   # 최저 LR = 최고의 10%
-        warmup_ratio=0.01,
+        # warmup 은 주지 않는다. transformers 5 에서 warmup_ratio 인자가 제거됐고,
+        # 애초에 문헌상 warmup 길이는 망각에도 적응에도 영향이 없다(아래 설명).
         logging_steps=10,             # 기본 100 이면 300스텝에 점이 3개뿐이다
         save_strategy="no",
         bf16=torch.cuda.is_bf16_supported(),
