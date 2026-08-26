@@ -296,7 +296,7 @@ print(f"  → 강의에서 120회면 약 {el * 120 / CALLS / 60:.1f}분 예상")
 print()
 print("  최적화 후 프롬프트(instructions):")
 for name, pr in optimized.named_predictors():
-    print(f"    [{name}] {pr.signature.instructions[:400]}")
+    print(f"    [{name}] {pr.signature.instructions[:1500]}")
 print()
 after = score(optimized)
 print(f"  val 점수  {before:.3f}  →  {after:.3f}   ({after-before:+.3f})")
