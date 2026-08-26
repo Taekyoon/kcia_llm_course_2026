@@ -573,10 +573,15 @@ code("""
 pool = ([dspy.Example(text=s["translation"]).with_inputs("text") for s in scored]
         if scored else [])
 
-trainset, valset = pool[:20], pool[20:30]
-print(f"trainset {len(trainset)}건 · valset {len(valset)}건")
-if len(trainset) < 5:
-    print("★ 1막·2막이 충분히 돌지 않아 최적화를 건너뜁니다.")
+# ★ 고정 인덱스로 자르면 안 된다. 2막에서 몇 건이 걸러질지 모르기 때문이다.
+#   실제로 pool 이 19건일 때 pool[20:30] 이 빈 리스트가 되어 valset 이 0건이었고,
+#   전후 비교가 통째로 건너뛰어졌다. 비율로 나눈다.
+n_val = max(3, round(len(pool) * 0.3))
+trainset, valset = pool[:-n_val], pool[-n_val:]
+
+print(f"pool {len(pool)}건 → trainset {len(trainset)}건 · valset {len(valset)}건")
+if len(trainset) < 5 or len(valset) < 3:
+    print("★ 1막·2막 결과가 부족합니다. N_TRANSLATE 를 늘리거나 THRESHOLD 를 낮추세요.")
 """)
 
 code("""
@@ -618,7 +623,7 @@ md("""
 """)
 
 code("""
-MAX_CALLS = 120        # verify/07_dspy설치.sh 실측을 근거로 정한 값
+MAX_CALLS = 120        # 실측 60회 52.5초 → 120회 약 1.7분 (verify/07)
 
 if len(trainset) >= 5:
     t0 = time.time()
@@ -649,7 +654,9 @@ else:
 """)
 
 code("""
-if valset:
+if not valset:
+    print("★ valset 이 비어 비교할 수 없습니다. 위 분할 셀을 확인하세요.")
+else:
     after_score = evaluate(optimized, valset)
 
     print("=" * 72)
