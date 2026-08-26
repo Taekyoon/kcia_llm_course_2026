@@ -740,7 +740,8 @@ for s in ["옛날 옛적에 작은 고양이가 살았어요.",
           "1919년 3월 1일 경성부에서 만세운동이 일어났다."]:
     ids = tokenizer.encode(s)
     print(f"  {s}")
-    print(f"    {len(ids)}토큰: {[tokenizer.decode([i]) for i in ids][:18]}")
+    print(f"    {len(ids)}토큰")
+    print(f"      {[tokenizer.decode([i]) for i in ids]}")
 """)
 
 md("""
@@ -877,9 +878,13 @@ def make_mixed(replay_ratio, total_blocks):
 # max_steps 만큼 돌 수 있는 분량이면 충분하다
 NEED = CPT_STEPS * BATCH_SIZE
 print(f"필요 블록 {NEED:,}개 (= {CPT_STEPS}스텝 x 배치 {BATCH_SIZE})")
+print(f"{'replay':>8}{'위키':>10}{'동화(replay)':>14}{'합계':>10}")
+print("-" * 44)
 for r in [0.0, 0.05, 0.25]:
-    ds = make_mixed(r, NEED)
-    print(f"  replay {r:>5.0%} → 총 {len(ds):,}블록")
+    n_replay = int(NEED * r)
+    print(f"{r:>7.0%}{NEED - n_replay:>10,}{n_replay:>14,}{NEED:>10,}")
+print()
+print("총량은 같고 **구성만** 바뀐다. 그래야 학습량이 같은 조건에서 비교된다.")
 """)
 
 md("""
