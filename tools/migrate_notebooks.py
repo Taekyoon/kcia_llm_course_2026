@@ -585,6 +585,373 @@ else:
     print("  → 잘리는 예시 없음")"""
 
 
+# ── 분류 실습 설명 (강의 설명 보강) ──────────────────────────────────
+# 마크다운이 2셀(48자)뿐이라 InsertCells 로 끼워넣는다.
+# 백슬래시 이스케이프를 쓰지 않으려고 실제 개행이 든 상수로 둔다 (CLAUDE.md §12).
+
+CLS_INTRO = """
+# 영화 리뷰 감성 분류
+
+문장을 읽고 **긍정인지 부정인지 맞히는** 모델을 만듭니다.
+
+## 무엇을 하게 되나
+
+1. **토크나이저**가 한국어를 어떻게 쪼개는지 봅니다
+2. **NSMC**(네이버 영화 리뷰) 데이터를 불러옵니다
+3. 문장을 모델이 먹을 수 있는 형태로 **전처리**합니다
+4. 인코더 모델에 **분류 헤드**를 붙여 학습시킵니다
+5. 학습한 모델로 새 문장을 **분류**해 봅니다
+
+## 왜 인코더인가
+
+앞서 **"Encoder 는 BERT, Decoder 는 GPT"** 를 배웠습니다.
+분류는 문장 **전체를 읽고 하나의 답**을 내는 일이라 인코더가 맞습니다.
+GPT 처럼 다음 단어를 이어 쓰는 구조가 아니라, 문장을 양방향으로 훑어
+**하나의 벡터로 압축**한 뒤 그 위에 분류기를 얹습니다.
+
+여기서 쓰는 `mmBERT-base` 는 다국어로 학습된 인코더입니다.
+""".strip()
+
+CLS_TOKENIZER = """
+## 1. 토크나이저가 한국어를 어떻게 다루나
+
+모델은 글자를 모릅니다. **숫자(토큰 ID)** 만 다룹니다.
+그 변환표가 토크나이저이고, 모델마다 **다릅니다** — 그래서 모델과 토크나이저는
+항상 짝으로 씁니다.
+
+아래 두 셀에서 볼 것:
+
+- 한 문장이 **몇 개로 쪼개지는가**. 한국어는 조사와 어미가 붙어 늘어나기 쉽습니다
+- `[CLS]` 와 `[SEP]` 가 자동으로 붙는 것. `[CLS]` 자리의 출력이 나중에
+  **문장 전체를 대표하는 벡터**로 쓰입니다. 분류 헤드가 붙는 곳이 바로 여기입니다
+- 같은 뜻인데 **한국어와 영어의 토큰 수가 다른 것**. 다국어 모델이라도
+  언어별로 효율이 같지 않습니다
+""".strip()
+
+CLS_DATA = """
+## 2. 데이터 — NSMC
+
+**NSMC**(Naver Sentiment Movie Corpus)는 네이버 영화 리뷰에 긍정/부정 라벨을 붙인
+한국어 감성 분석의 표준 데이터셋입니다. 학습 15만 · 평가 5만 건입니다.
+
+컬럼은 셋입니다.
+
+| 컬럼 | 내용 |
+|---|---|
+| `id` | 리뷰 번호 |
+| `document` | 리뷰 본문 — 이걸 모델에 넣습니다 |
+| `label` | 0 = 부정, 1 = 긍정 |
+
+아래에서 실제 샘플을 하나 열어봅니다. **데이터를 눈으로 보는 것**을 건너뛰지 마세요.
+컬럼 이름이 무엇인지, 문장이 얼마나 긴지, 라벨이 어떻게 들어 있는지를 알아야
+그다음 전처리를 쓸 수 있습니다.
+""".strip()
+
+CLS_PREPROCESS = """
+## 3. 전처리 — 토큰화와 패딩
+
+문장을 토큰 ID 로 바꿉니다. 두 가지가 눈에 띌 겁니다.
+
+**`truncation=True` 는 있는데 `padding` 이 없습니다.**
+길이를 여기서 맞추지 않고 **배치를 만들 때** 맞추기 때문입니다.
+그 일을 하는 것이 다음 셀의 `DataCollatorWithPadding` 입니다.
+
+미리 전체를 가장 긴 문장에 맞춰 패딩하면, 짧은 문장이 대부분인 데이터에서
+쓸데없는 패딩 토큰을 잔뜩 계산하게 됩니다. **배치 안에서만** 맞추면
+그 낭비가 사라집니다. 실무에서 쓰는 방식입니다.
+
+`batched=True` 는 map 을 한 건씩이 아니라 묶음으로 돌립니다. 훨씬 빠릅니다.
+""".strip()
+
+CLS_METRIC = """
+## 4. 무엇으로 잘했다고 할 것인가
+
+학습을 시작하기 전에 **평가 기준**을 정합니다. 이게 없으면 학습은 돌아가도
+좋아졌는지 알 수 없습니다.
+
+분류는 정답이 하나로 정해지므로 **정확도(accuracy)** 를 씁니다.
+
+`compute_metrics` 가 받는 `eval_pred` 는 `(예측, 정답)` 튜플입니다. Trainer 의 관례입니다.
+예측은 아직 확률 이전의 **로짓**이라 `argmax` 로 가장 큰 쪽을 고릅니다.
+
+> 정확도가 늘 적절한 것은 아닙니다. 긍정이 95% 인 데이터라면 전부 "긍정" 이라고
+> 답해도 95% 가 나옵니다. NSMC 는 긍정·부정이 거의 반반이라 정확도로 충분합니다.
+""".strip()
+
+CLS_LABEL = """
+## 5. 라벨 이름 붙이기
+
+모델 내부에서 라벨은 `0`, `1` 입니다. 그대로 두면 나중에 추론 결과가
+`LABEL_0` 이라고 나옵니다 — 이게 긍정인지 부정인지 알 수 없습니다.
+
+그래서 **번호와 이름의 대응표**를 만들어 모델에 함께 넣습니다.
+그러면 마지막 셀의 `pipeline` 이 `POSITIVE` / `NEGATIVE` 로 답합니다.
+
+사소해 보이지만, 모델을 남에게 넘길 때 이 대응표가 없으면
+**받은 사람이 0과 1의 의미를 알 수 없습니다.** 모델 파일에 같이 저장됩니다.
+""".strip()
+
+CLS_TRAIN = """
+## 7. 학습
+
+인코더 위에 **분류 헤드**(2차원 출력층)를 새로 얹고 전체를 미세조정합니다.
+헤드는 무작위로 초기화된 상태라 학습이 필요합니다.
+
+### 눈여겨볼 값
+
+| 값 | 왜 이렇게 |
+|---|---|
+| `learning_rate=2e-5` | 사전학습된 가중치를 **망가뜨리지 않을 만큼** 작게. 파인튜닝 관례값 |
+| `num_train_epochs=0.1` | **실습 시간을 줄이려고 일부러 줄인 것.** 15만 건의 10%만 봅니다 |
+| `weight_decay=0.01` | 과적합 억제 |
+| `load_best_model_at_end` | 평가 점수가 가장 좋았던 체크포인트를 되돌려 놓습니다 |
+
+`num_train_epochs=0.1` 이 가장 이상해 보일 겁니다. **1 에폭도 안 돌립니다.**
+그래도 정확도가 꽤 나옵니다 — 사전학습된 모델이 이미 언어를 알고 있어서
+분류 헤드만 맞추면 되기 때문입니다. **이것이 파인튜닝의 요점입니다.**
+
+> 실무에서는 1~3 에폭을 돌립니다. 값을 올려보면 정확도가 어떻게 변하는지
+> 직접 확인해 보세요. 대신 시간이 그만큼 늘어납니다.
+""".strip()
+
+CLS_INFER = """
+## 8. 써보기
+
+학습이 끝났으니 실제로 문장을 넣어봅니다.
+
+`pipeline` 은 토큰화 → 모델 → 후처리를 한 번에 묶어주는 편의 도구입니다.
+직접 쓰면 앞에서 한 전처리를 다시 손으로 해야 합니다.
+
+체크포인트 경로를 **하드코딩하지 않는 것**에 주의하세요. 배치 크기나 에폭이
+조금만 달라져도 체크포인트 번호가 바뀝니다. 방금 학습한 `trainer` 에서
+경로를 받아오면 그런 문제가 없습니다.
+
+여러 문장을 바꿔 넣어보세요. **반어법이나 부정문**에서 모델이 어떻게 반응하는지
+보면 한계가 드러납니다.
+""".strip()
+
+CLS_OUTRO = """
+## 마무리
+
+인코더 모델로 한국어 문장 분류기를 만들었습니다.
+
+- **토크나이저와 모델은 짝**입니다. `[CLS]` 자리가 문장 전체를 대표합니다
+- **패딩은 배치 단위로** 합니다. 미리 맞추면 계산이 낭비됩니다
+- **평가 기준을 먼저 정합니다.** 없으면 좋아졌는지 알 수 없습니다
+- 사전학습 모델은 **0.1 에폭만으로도** 쓸 만해집니다. 파인튜닝의 요점입니다
+
+다음 실습에서는 같은 인코더로 **개체명 인식(NER)** 을 합니다.
+문장 하나에 답 하나였던 분류와 달리, **토큰마다 답을 내야** 합니다.
+그 차이가 코드에서 어떻게 드러나는지 보게 됩니다.
+""".strip()
+
+
+CLS_MODEL = """
+## 6. 모델 — 인코더에 분류 헤드를 얹는다
+
+`mmBERT-base` 는 문장을 벡터로 바꿀 줄만 알지, 긍정·부정을 판단할 줄은 모릅니다.
+그래서 그 위에 **2차원 출력층**을 새로 붙입니다. `num_labels=2` 가 그 뜻입니다.
+
+| | 상태 |
+|---|---|
+| 인코더 본체 (307M) | **사전학습됨** — 언어를 이미 안다 |
+| 분류 헤드 (2차원) | **무작위 초기화** — 아무것도 모른다 |
+
+학습은 둘 다 건드립니다. 다만 본체는 이미 잘 되어 있으니 **살살**(작은 학습률로)
+건드리고, 헤드는 바닥부터 배웁니다. 이것이 파인튜닝입니다.
+
+> `device_map="auto"` 를 쓰지 않는 것에 주의하세요. 수십 GB 짜리 모델을 여러 GPU 에
+> 쪼개 올릴 때 쓰는 옵션인데, 307M 은 한 장에 넉넉히 들어갑니다. 오히려 Trainer 와
+> 함께 쓰면 문제가 생길 수 있습니다.
+""".strip()
+
+
+# ── NER 실습 설명 ─────────────────────────────────────────────────────
+NER_INTRO = """
+# 개체명 인식 (NER)
+
+문장에서 **사람·장소·기관·날짜** 같은 것을 찾아내는 모델을 만듭니다.
+
+```
+"안녕하세요 대한민국 서울에 사는 홍길동입니다."
+                └ 장소 ┘ └장소┘      └인물┘
+```
+
+## 분류와 무엇이 다른가
+
+바로 앞 실습은 문장 하나에 **답이 하나**였습니다. NER 은 **토큰마다 답**을 냅니다.
+
+| | 감성 분류 | 개체명 인식 |
+|---|---|---|
+| 입력 | 문장 | 문장 |
+| 출력 | 라벨 1개 | **토큰 수만큼** |
+| 모델 | `...ForSequenceClassification` | `...ForTokenClassification` |
+
+인코더 본체는 **똑같습니다.** 위에 얹는 헤드만 다릅니다.
+분류는 문장 전체를 대표하는 `[CLS]` 자리 하나를 보고, NER 은 **모든 자리**를 봅니다.
+
+이 차이 하나가 전처리를 꽤 까다롭게 만듭니다. 그게 이 실습의 핵심입니다.
+""".strip()
+
+NER_LABELS = """
+## 2. 라벨 체계 — BIO 태그
+
+개체명은 **여러 단어에 걸칩니다.** `대한민국 서울` 은 두 어절이지만 한 덩어리입니다.
+그래서 "이 토큰이 개체의 **시작**인지 **이어지는 중**인지" 를 구분해야 합니다.
+
+그 방식이 **BIO 태그**입니다.
+
+| 태그 | 뜻 |
+|---|---|
+| `B-LC` | 장소(LoCation)의 **B**eginning — 여기서 시작 |
+| `I-LC` | 장소의 **I**nside — 앞에서 이어짐 |
+| `O` | **O**utside — 개체가 아님 |
+
+KLUE-NER 은 6종을 다룹니다.
+
+| 코드 | 뜻 | | 코드 | 뜻 |
+|---|---|---|---|---|
+| `PS` | 인물 | | `DT` | 날짜 |
+| `LC` | 장소 | | `TI` | 시간 |
+| `OG` | 기관 | | `QT` | 수량 |
+
+`B-`/`I-` 각각에 6종 + `O` = **13개**입니다. 아래 셀에서 실제 목록을 확인하세요.
+
+> `.features["ner_tags"].feature.names` 에서 `.feature` 가 한 번 더 들어가는 것은,
+> `ner_tags` 가 **리스트**(토큰마다 하나)이기 때문입니다. 바깥은 리스트, 안쪽이 라벨입니다.
+""".strip()
+
+NER_ALIGN = """
+## 3. 라벨 정렬 — 이 실습에서 가장 까다로운 곳
+
+문제가 하나 있습니다. **라벨은 어절 단위인데 토크나이저는 더 잘게 쪼갭니다.**
+
+```
+어절:   홍길동  입니다
+라벨:   B-PS    O
+토큰:   홍 ##길 ##동 ##입 ##니다        ← 5개
+라벨:   ???
+```
+
+라벨이 3개인데 토큰이 5개입니다. **다시 맞춰줘야** 합니다.
+그 일을 하는 것이 `align_labels_with_tokens` 입니다. 세 가지 규칙이 들어 있습니다.
+
+### 1. 특수 토큰은 `-100`
+
+`[CLS]`, `[SEP]`, 패딩에는 정답이 없습니다. 그렇다고 아무 라벨이나 주면
+모델이 그걸 배웁니다.
+
+`-100` 은 PyTorch `CrossEntropyLoss` 의 **`ignore_index` 기본값**입니다.
+이 값이 든 자리는 손실 계산에서 **통째로 빠집니다.** 마법의 숫자가 아니라 약속입니다.
+
+### 2. 같은 어절의 두 번째 조각부터는 `B-` 를 `I-` 로
+
+`홍길동` 이 `홍`/`##길`/`##동` 으로 쪼개졌다면, 첫 조각만 `B-PS` 이고
+나머지는 `I-PS` 여야 합니다. **개체는 한 번만 시작**하니까요.
+
+```python
+if label % 2 == 1:
+    label += 1
+```
+
+이 한 줄이 그 일을 합니다. 왜 되는지는 **라벨 목록의 배열 순서** 때문입니다.
+
+```
+0: O   1: B-DT  2: I-DT   3: B-LC  4: I-LC   5: B-OG  6: I-OG  ...
+       └ 홀수 ┘ └ 짝수 ┘
+```
+
+`B-` 는 전부 홀수, `I-` 는 전부 짝수이고 **바로 다음 번호**입니다.
+그래서 1을 더하면 `B-` → `I-` 가 됩니다.
+
+> **이건 KLUE 의 라벨 순서에 기댄 코드입니다.** 다른 데이터셋에서 순서가 다르면
+> 조용히 틀립니다. 위 셀에서 `label_names` 를 눈으로 확인한 이유가 이것입니다.
+
+### 3. `is_split_into_words=True`
+
+입력이 이미 어절로 나뉜 리스트라는 뜻입니다. 그래야 `word_ids()` 로
+"이 토큰이 몇 번째 어절에서 나왔는지" 를 되물을 수 있습니다.
+이 기능은 **fast 토크나이저에만** 있습니다.
+""".strip()
+
+NER_METRIC = """
+## 4. 평가 — 정확도로는 부족하다
+
+분류에서는 정확도를 썼습니다. NER 에서 정확도를 쓰면 **속습니다.**
+
+문장의 대부분 토큰은 `O`(개체 아님)입니다. 전부 `O` 라고 답해도 정확도가
+90% 를 넘습니다. 정작 찾아야 할 개체는 하나도 못 찾았는데도요.
+
+그래서 **개체 단위**로 잽니다.
+
+| 지표 | 뜻 |
+|---|---|
+| 정밀도 | 찾았다고 한 것 중 **진짜**가 얼마나 |
+| 재현율 | 진짜 있는 것 중 **찾아낸 것**이 얼마나 |
+| F1 | 둘의 조화평균 — 보통 이걸 본다 |
+
+`seqeval` 이 이 계산을 해줍니다. **부분 일치를 인정하지 않는 것**이 핵심입니다 —
+`대한민국 서울` 을 `서울` 만 찾았다면 맞힌 것이 아닙니다.
+
+계산 전에 `-100` 자리를 걷어내는 것도 잊지 마세요. 앞에서 넣은 그 값입니다.
+""".strip()
+
+NER_TRAIN = """
+## 6. 학습
+
+분류 실습과 거의 같습니다. 다른 점만 봅니다.
+
+| | 분류 | NER |
+|---|---|---|
+| 모델 | `ForSequenceClassification` | `ForTokenClassification` |
+| 콜레이터 | `WithPadding` | `ForTokenClassification` |
+| 에폭 | 0.1 | **1** |
+| 평가셋 | `test` | **`validation`** |
+
+**콜레이터가 다른 이유**가 있습니다. NER 은 라벨도 토큰 수만큼 있어서,
+패딩할 때 **라벨 쪽도 함께** 늘려야 합니다. 그것도 `-100` 으로요.
+`DataCollatorWithPadding` 은 입력만 맞추므로 여기서는 못 씁니다.
+
+**KLUE 에는 `test` 스플릿이 없습니다.** 정답이 공개되지 않은 벤치마크라
+`validation` 으로 평가합니다.
+
+에폭이 1인 것은 데이터가 작기 때문입니다(약 2만 1천 문장). 분류의 15만 건과 다릅니다.
+""".strip()
+
+NER_INFER = """
+## 7. 써보기
+
+`aggregation_strategy="simple"` 이 눈에 띌 겁니다.
+
+앞에서 **어절을 토큰으로 쪼개며** 라벨을 늘렸던 것을 기억하세요.
+추론 결과도 그대로 나오면 `홍`/`##길`/`##동` 이 각각 따로 나옵니다.
+이 옵션이 그것을 **다시 하나로 합쳐** `홍길동 → PS` 로 돌려줍니다.
+
+전처리에서 쪼갠 것을 후처리에서 되돌리는 셈입니다. 대칭입니다.
+
+문장을 바꿔 넣어보세요. **처음 보는 이름**이나 **띄어쓰기가 틀린 문장**에서
+어떻게 반응하는지 보면 한계가 드러납니다.
+""".strip()
+
+NER_OUTRO = """
+## 마무리
+
+같은 인코더로 **토큰마다 답을 내는** 모델을 만들었습니다.
+
+- **BIO 태그**로 여러 단어에 걸친 개체를 표현합니다
+- 어절 라벨을 토큰에 **다시 맞춰야** 합니다. 여기가 가장 까다롭습니다
+- `-100` 은 "손실에서 빼라" 는 **약속된 값**입니다
+- NER 에 정확도를 쓰면 속습니다. **개체 단위 F1** 을 봅니다
+- 전처리에서 쪼갠 것을 추론에서 **다시 합칩니다**
+
+여기까지가 **인코더**로 하는 일입니다. 문장을 이해해서 라벨을 붙이는 것이지,
+새로운 글을 쓰지는 못합니다.
+
+다음은 **글을 만들어내는 쪽** — 디코더입니다. GPT 를 밑바닥부터 만들어
+왜 이 구조가 생성에 쓰이는지 직접 보게 됩니다.
+""".strip()
+
+
 MIGRATIONS: list[Migration] = [
     # =====================================================================
     Migration("HPC_Classification실습.ipynb", [
@@ -629,7 +996,31 @@ MIGRATIONS: list[Migration] = [
              'best = trainer.state.best_model_checkpoint or training_args.output_dir\n'
              'classifier = pipeline("sentiment-analysis", model=best, tokenizer=tokenizer)',
              "하드코딩 체크포인트 경로 제거 — 재현 불가 원인 (D-7)"),
-    ]),
+
+        # 기존 헤딩 2개는 교체한다 (영어 제목 + 설명 없는 제목)
+        Rule(4, "## 토크나이저 테스트", CLS_TOKENIZER,
+             "헤딩만 있던 것을 설명으로 확장 (강의 설명 보강)"),
+        Rule(7, "# Korean Movie Review Classification", CLS_DATA,
+             "영어 제목 → 한국어 + 데이터 설명 (강의 설명 보강)"),
+    ], inserts=[
+        InsertCells(1, [("markdown", CLS_INTRO)], "도입 — 무엇을 왜 하는가",
+                    expect_head="# 2026 스택"),
+        InsertCells(11, [("markdown", CLS_PREPROCESS)], "전처리 — 패딩을 왜 미루나",
+                    expect_head="def preprocess_function"),
+        InsertCells(14, [("markdown", CLS_METRIC)], "평가 기준을 먼저 정한다",
+                    expect_head="accuracy = evaluate.load"),
+        InsertCells(16, [("markdown", CLS_LABEL)], "라벨 이름을 왜 붙이나",
+                    expect_head="id2label = "),
+        InsertCells(17, [("markdown", CLS_MODEL)], "모델 — 분류 헤드를 얹는다",
+                    expect_head="# 307M 인코더라"),
+        InsertCells(19, [("markdown", CLS_TRAIN)], "학습 — num_train_epochs=0.1 의 의미",
+                    expect_head="training_args = TrainingArguments"),
+        InsertCells(20, [("markdown", CLS_INFER)], "추론 — pipeline 과 체크포인트 경로",
+                    expect_head="from transformers import pipeline"),
+    ], appends=[
+        AppendCells([("markdown", CLS_OUTRO)], "마무리 — 되짚기 + 다음 실습 연결",
+                    after_cell=21),
+    ], drops=[21]),
 
     # =====================================================================
     Migration("HPC_NER실습.ipynb", [
@@ -680,6 +1071,25 @@ MIGRATIONS: list[Migration] = [
              '# checkpoint-183 하드코딩은 재현되지 않는다. 학습 결과에서 받아온다.\n'
              'model_checkpoint = trainer.state.best_model_checkpoint or training_args.output_dir',
              "하드코딩 체크포인트 경로 제거 (D-7)"),
+
+        Rule(4, "## 토크나이저 테스트", "## 1. 토크나이저 — 분류 실습과 같은 것을 씁니다\n\n인코더 본체가 같으므로 토크나이저도 같습니다.\n앞 실습에서 본 것을 다시 확인하고 넘어갑니다.",
+             "헤딩만 있던 것을 짧게 확장. 분류와 중복이라 길게 쓰지 않는다"),
+        Rule(7, "# NER Classification", NER_LABELS,
+             "영어 제목 → 한국어 + BIO 태그 설명 (강의 설명 보강)"),
+    ], inserts=[
+        InsertCells(1, [("markdown", NER_INTRO)], "도입 — 분류와 무엇이 다른가",
+                    expect_head="# 2026 스택"),
+        InsertCells(13, [("markdown", NER_ALIGN)], "라벨 정렬 — 이 실습의 핵심",
+                    expect_head="def align_labels_with_tokens"),
+        InsertCells(16, [("markdown", NER_METRIC)], "평가 — 정확도로는 속는다",
+                    expect_head="import evaluate"),
+        InsertCells(21, [("markdown", NER_TRAIN)], "학습 — 분류와 다른 점만",
+                    expect_head="training_args = TrainingArguments"),
+        InsertCells(22, [("markdown", NER_INFER)], "추론 — 쪼갠 것을 다시 합친다",
+                    expect_head="from transformers import pipeline"),
+    ], appends=[
+        AppendCells([("markdown", NER_OUTRO)], "마무리 — 되짚기 + 다음 실습 연결",
+                    after_cell=22),
     ]),
 
     # =====================================================================
@@ -1495,44 +1905,43 @@ def apply(mig: Migration, dry: bool) -> tuple[int, int, list[str]]:
         applied += 1
         log.append(f"  [추가] 셀 {len(ap_.cells)}개 · {ap_.why}")
 
-    # --- 중간 삽입은 **맨 마지막에, 위치 역순으로** ---
-    # 역순이 아니면 앞쪽 삽입이 뒤쪽 before_cell 을 밀어버린다.
-    for ins in sorted(mig.inserts, key=lambda x: -x.before_cell):
-        if not (1 <= ins.before_cell <= len(cells)):
+    # --- 구조 변경(삽입·삭제)은 맨 마지막에, **위치 내림차순 한 번에** ---
+    # 삽입과 삭제를 따로 돌리면 서로의 위치를 밀어버린다. 실제로 그렇게 만들었다가
+    # drops 가 엉뚱한 셀을 가리켰다. 한 리스트로 합쳐 높은 번호부터 처리하면
+    # 모든 위치를 **원본 번호 그대로** 적을 수 있다.
+    ops = ([(d, "drop", None) for d in mig.drops]
+           + [(i.before_cell, "insert", i) for i in mig.inserts])
+    for pos, kind, payload in sorted(ops, key=lambda t: -t[0]):
+        if not (1 <= pos <= len(cells)):
             raise SystemExit(
-                f"\n[중단] {mig.rel} 삽입 위치 {ins.before_cell} 이 범위를 "
-                f"벗어납니다 (총 {len(cells)}).\n  사유: {ins.why}"
+                f"\n[중단] {mig.rel} {kind} 위치 {pos} 가 범위를 벗어납니다 "
+                f"(총 {len(cells)})."
             )
-        anchor = cell_source(cells[ins.before_cell - 1])
-        head = anchor.lstrip().splitlines()[0] if anchor.strip() else ""
-        if not head.startswith(ins.expect_head):
-            raise SystemExit(
-                f"\n[중단] {mig.rel} 셀 {ins.before_cell} 이 예상한 앵커가 아닙니다.\n"
-                f"  사유: {ins.why}\n"
-                f"  예상 시작: {ins.expect_head!r}\n"
-                f"  실제 첫 줄: {head[:120]!r}\n"
-                f"  → 원본이 바뀌었거나 앞선 규칙이 셀을 옮겼습니다."
-            )
-        for off, (kind, source) in enumerate(ins.cells):
-            cells.insert(ins.before_cell - 1 + off, make_cell(kind, source))
-        applied += 1
-        log.append(f"  [삽입] 셀 {ins.before_cell} 앞에 {len(ins.cells)}개 · {ins.why}")
-
-    # --- 삭제도 맨 마지막에, 역순으로 ---
-    # 빈 셀처럼 지워도 되는 것만 대상이다. 내용이 있으면 중단한다 —
-    # 실수로 코드를 날리는 것이 이 도구에서 가장 위험한 실패다.
-    for idx in sorted(mig.drops, reverse=True):
-        if not (1 <= idx <= len(cells)):
-            raise SystemExit(f"[중단] {mig.rel} 삭제 위치 {idx} 범위 초과 (총 {len(cells)})")
-        body = cell_source(cells[idx - 1]).strip()
-        if body:
-            raise SystemExit(
-                f"\n[중단] {mig.rel} 셀 {idx} 는 비어 있지 않습니다. 지우지 않습니다.\n"
-                f"  내용: {body[:120]!r}"
-            )
-        del cells[idx - 1]
-        applied += 1
-        log.append(f"  [삭제] 빈 셀 {idx}")
+        if kind == "drop":
+            body = cell_source(cells[pos - 1]).strip()
+            if body:
+                raise SystemExit(
+                    f"\n[중단] {mig.rel} 셀 {pos} 는 비어 있지 않습니다. 지우지 않습니다.\n"
+                    f"  내용: {body[:120]!r}"
+                )
+            del cells[pos - 1]
+            applied += 1
+            log.append(f"  [삭제] 빈 셀 {pos}")
+        else:
+            anchor = cell_source(cells[pos - 1])
+            head = anchor.lstrip().splitlines()[0] if anchor.strip() else ""
+            if not head.startswith(payload.expect_head):
+                raise SystemExit(
+                    f"\n[중단] {mig.rel} 셀 {pos} 가 예상한 앵커가 아닙니다.\n"
+                    f"  사유: {payload.why}\n"
+                    f"  예상 시작: {payload.expect_head!r}\n"
+                    f"  실제 첫 줄: {head[:120]!r}\n"
+                    f"  → 원본이 바뀌었거나 앞선 규칙이 셀을 옮겼습니다."
+                )
+            for off, (kind_, source) in enumerate(payload.cells):
+                cells.insert(pos - 1 + off, make_cell(kind_, source))
+            applied += 1
+            log.append(f"  [삽입] 셀 {pos} 앞에 {len(payload.cells)}개 · {payload.why}")
 
     if not dry:
         out_path.parent.mkdir(parents=True, exist_ok=True)
