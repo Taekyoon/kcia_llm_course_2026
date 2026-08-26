@@ -486,7 +486,7 @@ else:
 
     orpo_args = ORPOConfig(
         beta=0.1,                 # 승산비 항의 가중치 λ. 크게 줄수록 선호를 세게 반영한다
-        output_dir="data/test_model_orpo",
+        output_dir="data/orpo_model",
         num_train_epochs=1,
         per_device_train_batch_size=2,
         gradient_accumulation_steps=8,
@@ -1186,6 +1186,179 @@ SFT_GEN = """
 """.strip()
 
 
+# ── DPO 실습 설명 ────────────────────────────────────────────────────
+DPO_INTRO = """
+## 환경 세팅
+
+# 더 나은 답을 고르게 만들기 (DPO)
+
+SFT 는 **"이렇게 답해라"** 를 가르쳤습니다. 정답이 하나로 정해지는 일에는 충분합니다.
+
+그런데 요약이나 설명처럼 **정답이 여럿인** 작업에서는 부족합니다.
+문법도 맞고 내용도 맞는 답 두 개 중에 **어느 쪽이 더 나은지** 는 SFT 로 못 가르칩니다.
+
+그래서 방식을 바꿉니다. 정답 하나를 보여주는 대신 **"이 답이 저 답보다 낫다"** 를
+보여줍니다. 이것이 **선호 학습**(preference learning)이고,
+그중 가장 단순한 방법이 **DPO**(Direct Preference Optimization)입니다.
+
+## 무엇을 하게 되나
+
+1. **선호 쌍** 데이터를 봅니다 — 같은 질문에 좋은 답과 나쁜 답
+2. **앞 실습에서 학습한 모델을 이어받습니다**
+3. DPO 로 선호를 학습시킵니다
+4. 끝에서 **ORPO** 와 비교하고, 언제 무엇을 쓸지 정리합니다
+
+> **DPO 는 SFT 를 전제합니다.** 말은 할 줄 아는 모델을 취향 쪽으로 미는 방법이지,
+> 아무것도 모르는 모델을 가르치는 방법이 아닙니다. 그래서 앞 실습의 결과를 이어받습니다.
+""".strip()
+
+DPO_DATA = """
+## 1. 데이터 — 선호 쌍
+
+SFT 데이터는 `instruction` / `output` 두 열이었습니다. DPO 는 **세 열**입니다.
+
+| 열 | 내용 |
+|---|---|
+| `prompt` | 질문 |
+| `chosen` | **더 나은** 답 |
+| `rejected` | **덜 나은** 답 |
+
+같은 질문에 답이 둘 있고, **어느 쪽이 나은지 표시**돼 있습니다.
+모델은 `chosen` 쪽 확률을 올리고 `rejected` 쪽을 내리는 방향으로 학습합니다.
+
+여기서 쓰는 `ko-dpo-mix-7k-trl-style` 은 한국어 선호 데이터를 모은 것입니다.
+이름의 **`trl-style`** 은 TRL 라이브러리가 기대하는 세 열 구조로 정리돼 있다는 뜻입니다.
+
+> **이 데이터를 어떻게 만드나** 가 실무의 진짜 문제입니다. 사람이 일일이 고르면
+> 비싸고, 큰 모델에게 시키면 그 모델의 편향이 딸려옵니다.
+> 2일차에 다룬 **LLM-as-judge** 가 여기에 쓰입니다.
+""".strip()
+
+DPO_SPLIT = """
+### 얼마나 쓸 것인가
+
+데이터가 7천 건이지만 실습에서는 일부만 씁니다. 전부 돌리면 시간이 오래 걸립니다.
+
+건수를 고정해서 자르지 않고 **비율로** 나눕니다. 데이터 크기가 바뀌면
+고정 인덱스는 조용히 깨지기 때문입니다 — 실제로 다른 노트북에서 평가셋이
+0건이 된 적이 있습니다.
+""".strip()
+
+DPO_FORMAT = """
+## 3. 형식 맞추기 — 여기가 SFT 와 다릅니다
+
+SFT 에서는 `apply_chat_template` 이 알아서 형식을 씌웠습니다.
+여기서는 **손으로 조립**합니다. 이유가 있습니다.
+
+DPO 는 `prompt` / `chosen` / `rejected` 를 **각각 따로** 받습니다.
+하나로 합쳐진 대화가 아니라 세 조각이 필요하므로, 템플릿을 통째로 씌울 수 없습니다.
+
+```
+prompt   = <|system|>…<|user|>…<|assistant|>     ← 여기까지가 질문
+chosen   = 좋은 답<|endoftext|>
+rejected = 나쁜 답<|endoftext|>
+```
+
+**주의할 것이 하나 있습니다.** 손으로 조립하다 보니 위 토크나이저 셀에서 정한
+템플릿과 **어긋날 수 있습니다.** 어긋나면 학습은 정상적으로 끝나는데
+막상 써보면 이상한 답이 나옵니다. 두 곳의 `<|user|>` 표기가 같은지 확인해 보세요.
+""".strip()
+
+DPO_MODEL = """
+## 4. 모델 — 앞 실습을 이어받는다
+
+DPO 는 **SFT 된 모델에서 출발**해야 합니다. 아래 셀은 앞 실습(`HPC_SFT실습`)이
+저장한 어댑터를 찾아 이어받습니다. 없으면 베이스에서 시작하되 **크게 알립니다.**
+
+### 참조 모델은 어디 있나
+
+DPO 의 원래 정의에는 **참조 모델**이 필요합니다. 학습 중인 모델이 원래 모델에서
+너무 멀어지지 않게 붙잡아 두는 역할입니다. 그래서 보통 메모리에 모델이 두 개 뜹니다.
+
+그런데 아래 코드에는 `ref_model` 인자가 **없습니다.** 빠뜨린 게 아닙니다.
+
+**LoRA 를 쓰면 참조 모델이 따로 필요 없습니다.** 원래 가중치는 얼려 둔 채
+어댑터만 학습하므로, **어댑터를 잠깐 끄면 그게 곧 원래 모델**입니다.
+TRL 이 내부에서 그렇게 처리합니다. 모델 하나 분량의 메모리를 아끼는 셈입니다.
+
+> 이 노트북 끝의 ORPO 섹션에서 "DPO 는 참조 모델이 필요하다" 고 말합니다.
+> **개념상 필요한 것**과 **LoRA 덕에 따로 안 띄워도 되는 것**은 다른 얘기입니다.
+""".strip()
+
+DPO_TRAINER = """
+## 5. 학습 설정
+
+SFT 와 값이 조금 다릅니다.
+
+| | SFT | DPO |
+|---|---|---|
+| 학습률 | `5e-4` | **`3e-4`** — 조금 낮게 |
+| 에폭 | 3 | **2** |
+
+**학습률을 낮추는 이유**가 있습니다. DPO 는 이미 SFT 된 모델을 다듬는 단계라
+크게 흔들면 앞에서 배운 것을 잃습니다. 1일차 CPT 에서 본 **치명적 망각**과 같은 이야기입니다.
+
+`beta` 는 명시하지 않아 기본값(0.1)이 쓰입니다. 이 값이 클수록 참조 모델에서
+**멀어지지 않으려는 힘**이 세집니다. 작게 주면 선호를 세게 반영하지만
+원래 능력을 잃을 위험이 커집니다.
+""".strip()
+
+DPO_RUN = """
+## 학습
+
+`rewards/chosen` 과 `rewards/rejected` 가 로그에 나옵니다. **둘의 차이가 벌어지는지**
+보세요. 그것이 "좋은 답과 나쁜 답을 구분하게 되고 있다" 는 신호입니다.
+
+`rewards/accuracies` 는 chosen 을 rejected 보다 높게 준 비율입니다. 올라가야 정상입니다.
+""".strip()
+
+DPO_GEN = """
+## 써보기
+
+SFT 때와 같은 방식으로 물어봅니다. 챗 템플릿을 다시 넣는 것도 같습니다.
+
+**SFT 결과와 비교해 보세요.** 선호 학습이 붙으면 보통 답이 더 정돈되고 길어집니다.
+다만 실습 규모(500건 · 2에폭)에서는 차이가 크지 않을 수 있습니다.
+""".strip()
+
+# DPO 가 SFT 를 이어받게 한다. 실제 개행이 든 상수로 둔다 (백슬래시 회피).
+DPO_RESUME_OLD = """model = get_peft_model(model, lora_config)"""
+
+DPO_RESUME_NEW = """# ★ DPO 는 SFT 를 전제한다. 앞 실습이 남긴 어댑터가 있으면 이어받는다.
+#   없으면 베이스에서 시작하되 조용히 넘어가지 않고 알린다 —
+#   이 노트북 끝의 ORPO 섹션이 "베이스에 바로 걸면 잘 안 된다" 고 말하기 때문이다.
+from pathlib import Path
+
+from peft import PeftModel
+
+_sft = Path("data/sft_model")
+if (_sft / "adapter_config.json").exists():
+    print(f"SFT 결과를 이어받습니다 — {_sft}")
+    # is_trainable=True 가 없으면 어댑터가 얼어붙어 학습이 되지 않는다.
+    model = PeftModel.from_pretrained(model, str(_sft), is_trainable=True)
+else:
+    print("=" * 60)
+    print("★ SFT 산출물이 없어 베이스 모델에서 시작합니다.")
+    print("  앞의 HPC_SFT실습 을 먼저 돌리면 이어받을 수 있습니다.")
+    print("  베이스에 바로 DPO 를 거는 것은 권장되지 않습니다 —")
+    print("  이 노트북 끝의 ORPO 섹션에서 그 이유를 다룹니다.")
+    print("=" * 60)
+    model = get_peft_model(model, lora_config)"""
+
+DPO_SPLIT_OLD = """# remove this when done debugging
+indices = range(0,500)
+test_indices = range(500,550)"""
+
+DPO_SPLIT_NEW = """# 건수를 고정해서 자르면 데이터 크기가 바뀔 때 조용히 깨진다. 비율로 나눈다.
+n_all = len(raw_datasets["train"])
+n_train = min(500, int(n_all * 0.9))
+n_test = min(50, n_all - n_train)
+
+indices = range(0, n_train)
+test_indices = range(n_train, n_train + n_test)
+print(f"전체 {n_all:,}건 → 학습 {n_train:,} / 평가 {n_test}")"""
+
+
 MIGRATIONS: list[Migration] = [
     # =====================================================================
     Migration("HPC_Classification실습.ipynb", [
@@ -1446,7 +1619,11 @@ MIGRATIONS: list[Migration] = [
                     expect_head="from trl import SFTTrainer"),
     ], appends=[
         AppendCells([("markdown", SFT_OUTRO)], "마무리 — 되짚기 + DPO 연결", after_cell=28),
-    ], drops=[28]),
+    ], drops=[28], globals_=[
+        GlobalRule("'data/test_model'", "'data/sft_model'",
+                   "SFT·DPO·GRPO 가 전부 같은 폴더에 저장해 서로 덮어쓰고 있었다. "
+                   "DPO 가 SFT 결과를 이어받으려면 갈라야 한다", 2),
+    ]),
 
     # =====================================================================
     Migration("HPC_DPO실습.ipynb", [
@@ -1459,7 +1636,32 @@ MIGRATIONS: list[Migration] = [
              "trainer.processing_class.save_pretrained(output_dir)", WHY_TOKATTR),
         Rule(22, CHAT_TMPL_OLD, CHAT_TMPL_NEW, WHY_CHAT),
         Rule(22, GEN_OLD, GEN_NEW, WHY_CHAT),
-    ], appends=[ORPO_SECTION]),
+
+        # ── SFT 를 이어받는다 (설명과 실습의 모순 해소) ──────────
+        Rule(14, DPO_RESUME_OLD, DPO_RESUME_NEW,
+             "DPO 는 SFT 를 전제하는데 베이스에서 시작하고 있었다. "
+             "같은 노트북의 ORPO 섹션이 그걸 경고한다"),
+        Rule(6, DPO_SPLIT_OLD, DPO_SPLIT_NEW,
+             "영문 TODO 주석 제거 + 고정 인덱스를 비율 분할로 (SFT 와 일관)"),
+
+        # ── 강의 설명 보강 ──────────────────────────────────────
+        Rule(1, "## 환경 세팅", DPO_INTRO, "도입 — 왜 선호 학습인가 (강의 설명)"),
+        Rule(4, "## 데이터셋 불러오기", DPO_DATA, "데이터 — 선호 쌍 세 열 (강의 설명)"),
+        Rule(10, "## 챗 템플릿 적용하기", DPO_FORMAT,
+             "형식 — SFT 와 달리 손으로 조립하는 이유 (강의 설명)"),
+        Rule(13, "## 모델 학습 준비하기", DPO_MODEL,
+             "모델 — 이어받기 + 참조 모델이 왜 안 보이나 (강의 설명)"),
+        Rule(16, "## 학습해보기!", DPO_RUN, "학습 — rewards 를 어떻게 읽나 (강의 설명)"),
+        Rule(19, "## 학습한 모델로 생성해보기", DPO_GEN, "써보기 (강의 설명)"),
+    ], [
+        GlobalRule("'data/test_model'", "'data/dpo_model'",
+                   "SFT·DPO·GRPO 가 전부 같은 폴더에 저장해 서로 덮어쓰고 있었다", 2),
+    ], appends=[ORPO_SECTION], inserts=[
+        InsertCells(6, [("markdown", DPO_SPLIT)], "얼마나 쓸 것인가",
+                    expect_head="from datasets import DatasetDict"),
+        InsertCells(15, [("markdown", DPO_TRAINER)], "학습 설정 — SFT 와 다른 값",
+                    expect_head="from trl import DPOTrainer"),
+    ], drops=[23]),
 
     # =====================================================================
     Migration("HPC_GRPO실습.ipynb", [
@@ -1482,6 +1684,9 @@ MIGRATIONS: list[Migration] = [
              '                                          add_generation_prompt=True, return_tensors="pt").to("cuda")',
              CHAT_TMPL_NEW, WHY_CHAT),
         Rule(25, GEN_OLD, GEN_NEW, WHY_CHAT),
+    ], [
+        GlobalRule("'data/test_model'", "'data/grpo_model'",
+                   "SFT·DPO·GRPO 가 전부 같은 폴더에 저장해 서로 덮어쓰고 있었다", 2),
     ]),
 
     # =====================================================================
