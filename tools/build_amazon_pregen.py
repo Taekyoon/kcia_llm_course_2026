@@ -31,9 +31,11 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import io
 import json
 import sys
 import time
+from contextlib import redirect_stdout
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from types import ModuleType
 
@@ -109,7 +111,10 @@ def load_notebook_defs(client, model_name: str) -> dict:
         if not any(w in src for w in WANT):
             continue
         try:
-            exec(src, ns)
+            # 셀 안의 print 를 삼킨다. 정의만 필요한데 변환 셀이 빈 채로 돌면서
+            # "학습 예시 0건" 을 찍어 실제 결과인 것처럼 보였다.
+            with redirect_stdout(io.StringIO()):
+                exec(src, ns)
         except Exception as e:
             raise SystemExit(
                 f"[중단] 노트북 셀 {i} 를 실행할 수 없습니다: {type(e).__name__}: {e}\n"
