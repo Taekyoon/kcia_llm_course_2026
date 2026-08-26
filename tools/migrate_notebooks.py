@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from layout import DAY_OF, SRC, WORK, find_source, prune_stale, work_path  # noqa: F401
+from nbcommon import DATA_DIR_CODE
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -140,7 +141,7 @@ WHY_CHAT = ("transformers 5: apply_chat_template 이 BatchEncoding 반환 → "
 # 그래서 변환 셀보다 **먼저** 구조를 찍는 셀을 둔다. 이 출력을 보고 변환을 확정한다.
 AMAZON_PROBE = AppendCells(
     after_cell=55,
-    why="산출물 구조 확인 셀 — 학습 데이터 변환(D-3)을 쓰기 전에 실제 형태를 본다",
+    why="경로 규약 + 산출물 구조 확인 셀 — 학습 데이터 변환(D-3)을 쓰기 전에 실제 형태를 본다",
     cells=[
         ("markdown", '''
 ---
@@ -156,6 +157,7 @@ AMAZON_PROBE = AppendCells(
 > 이 셀은 눈으로 확인하기 위한 것입니다. 출력이 예상과 다르면 앞 단계에서
 > 무언가 실패한 것입니다 — 다음 단계로 넘어가기 전에 여기서 잡아야 합니다.
 '''),
+        ("code", DATA_DIR_CODE),
         ("code", '''
 import json
 
@@ -207,6 +209,148 @@ bad = sum(1 for r in output_data
           if "error" in str(r["summary_by_users"])[:40]
           or "error" in str(r["summary_by_subsection"])[:40])
 print(f"제외 대상(생성 실패로 보이는 행): {bad} / {len(output_data)}")
+'''),
+    ],
+)
+
+
+# ---------------------------------------------------------------------------
+# Amazon 산출물 -> 3일차 SFT 학습 데이터 (D-3).
+#
+# 구조는 verify/06 amazon 실행 결과로 확정했다 (2026-08-26):
+#   summary_by_users      -> json.loads -> {구매자유형(한국어): '{"summary": "..."}'}
+#   summary_by_subsection -> json.loads -> {속성그룹명(한국어): '{"summary": "..."}'}
+# 값이 **또 JSON 문자열**이라 json.loads 를 두 번 해야 한다.
+AMAZON_TO_SFT = AppendCells(
+    after_cell=58,   # AMAZON_PROBE 가 3셀(경로+확인2)을 먼저 붙인 뒤
+    why="학습 데이터 변환 셀 — instruction/output JSONL (D-3)",
+    cells=[
+        ("markdown", '''
+---
+
+## 학습 데이터로 바꾸기
+
+지금까지 만든 것은 **요약**입니다. 이걸 내일 파인튜닝(SFT)의 학습 데이터로 씁니다.
+
+SFT 는 `instruction`(무엇을 하라) 과 `output`(정답) 쌍을 먹습니다.
+우리에게는 상품 설명과 요약이 있으니 이렇게 짝지으면 됩니다.
+
+```
+instruction : "다음 상품 설명을 읽고 '<구매자 유형>' 관점에서 요약하세요."  + 상품 설명
+output      : 그 유형에 대해 만든 요약
+```
+
+상품 하나에서 구매자 유형 3~4개 + 속성 그룹 3~5개가 나오므로,
+**10개 상품이 수십 건의 학습 예시**가 됩니다.
+
+### 세 가지를 조심해야 합니다
+
+1. **JSON 이 두 겹입니다.** 위 구조 확인에서 봤듯이 `json.loads` 를 두 번 해야
+   `summary` 에 닿습니다.
+2. **`'error'` 는 파싱을 통과합니다.** 실패한 호출이 돌려준 `'error'` 가
+   `json.dumps` 로 감싸이면 `'"error"'` 가 되어 파싱은 성공하고 **문자열**이 나옵니다.
+   그러면 `obj["summary"]` 에서 `KeyError` 가 아니라 **`TypeError`** 가 납니다.
+3. **상품 설명을 잘라야 합니다.** SFT 의 `max_length` 에 걸리면 **정답이 잘려나가고**
+   loss 는 낮은데 아무것도 안 배우는 상태가 됩니다. 조용히 실패하는 종류입니다.
+'''),
+        ("code", '''
+MAX_SRC = 1200   # 상품 설명을 이만큼만 쓴다. 내일 SFT 의 max_length 에 여유를 둔다
+
+
+def unwrap(raw):
+    """이중 인코딩을 풀어 summary 문자열을 꺼낸다. 못 꺼내면 None."""
+    obj = json.loads(raw) if isinstance(raw, str) else raw
+    # 'error' 가 감싸이면 obj 가 dict 가 아니라 str 이 된다.
+    # 그때 obj["summary"] 는 TypeError 이므로 dict 인지 먼저 본다.
+    return obj.get("summary") if isinstance(obj, dict) else None
+
+
+# 이스케이프를 쓰지 않으려고 삼중따옴표 템플릿으로 둔다.
+# (여러 겹의 문자열을 거치면서 백슬래시가 한 겹씩 사라져 실제로 두 번 깨졌다)
+INSTRUCTION = """{task}
+
+[상품 설명]
+{src}"""
+
+TEMPLATES = [
+    ("summary_by_users",
+     "다음 상품 설명을 읽고 '{k}' 관점에서 핵심을 요약하세요."),
+    ("summary_by_subsection",
+     "다음 상품 설명에서 '{k}' 에 해당하는 내용을 한 줄로 요약하세요."),
+]
+
+records, dropped = [], 0
+
+for row in output_data:
+    src = row["text"][:MAX_SRC]
+    for col, tmpl in TEMPLATES:
+        try:
+            outer = json.loads(row[col])
+        except (json.JSONDecodeError, TypeError):
+            dropped += 1
+            continue
+        if not isinstance(outer, dict):
+            dropped += 1
+            continue
+
+        for k, v in outer.items():
+            try:
+                summary = unwrap(v)
+            except (json.JSONDecodeError, TypeError):
+                summary = None
+            if not summary:
+                dropped += 1          # 'error' 나 빈 값
+                continue
+            records.append({
+                "instruction": INSTRUCTION.format(task=tmpl.format(k=k), src=src),
+                "output": summary,
+            })
+
+# 출력에 'error' 라는 단어를 쓰지 않는다 — 검증 스크립트가 그 단어를 세기 때문이다.
+print(f"학습 예시 {len(records)}건 · 제외 {dropped}건")
+print(f"  상품 {len(output_data)}개에서 나왔습니다.")
+'''),
+        ("code", '''
+if records:
+    print("=" * 72)
+    print("[instruction]")
+    print(records[0]["instruction"][:300], "...")
+    print()
+    print("[output]")
+    print(records[0]["output"])
+    print("=" * 72)
+    print()
+
+    lens = sorted(len(r["instruction"]) + len(r["output"]) for r in records)
+    print(f"글자 수 — 중앙값 {lens[len(lens)//2]:,} · 최대 {lens[-1]:,}")
+    print("  내일 SFT 에서 토큰 길이 분포를 다시 확인합니다.")
+'''),
+        ("code", '''
+out_path = DATA_DIR / "amazon_ko_sft.mine.jsonl"
+with out_path.open("w", encoding="utf-8") as f:
+    for r in records:
+        # ensure_ascii=False 가 없으면 한글이 escape 되어 눈으로 확인할 수 없다
+        print(json.dumps(r, ensure_ascii=False), file=f)
+
+print(f"저장: {out_path}  ({out_path.stat().st_size/1024:.0f} KB)")
+print()
+print("내일 SFT 실습이 이 파일을 읽습니다.")
+print("강사가 미리 만들어 둔 assets/amazon_ko_sft.jsonl.gz 와 합쳐서 학습합니다.")
+'''),
+        ("markdown", '''
+### 여기서 만든 것이 내일로 이어집니다
+
+| 오늘 만든 것 | 내일 쓰는 곳 |
+|---|---|
+| `amazon_ko_sft.mine.jsonl` | 3일차 **SFT 학습 데이터** |
+
+수강생이 직접 만든 것은 10개 상품 분량이라 학습에는 적습니다.
+그래서 강사가 미리 300개 상품으로 돌려둔 파일과 **합쳐서** 씁니다.
+직접 만든 것이 그 안에 들어가 있다는 점이 중요합니다 —
+**남의 데이터가 아니라 내가 만든 데이터로 학습**하게 됩니다.
+
+> 어제 프롬프트만으로 점수를 얼마나 올렸는지 기억하세요.
+> 내일은 같은 일을 **학습으로** 해보고, 그 차이가 값어치가 있는지 따집니다.
 '''),
     ],
 )
@@ -936,7 +1080,7 @@ MIGRATIONS: list[Migration] = [
                    'response_format={"type": "json_schema", "json_schema":\n'
                    '                  {"name": "summary", "schema": summary_schema}},',
                    "guided_json 제거 → response_format (Step 6·7)", 2),
-    ], appends=[AMAZON_PROBE]),
+    ], appends=[AMAZON_PROBE, AMAZON_TO_SFT]),
 
     # =====================================================================
     Migration("HPC_BM25_RAG실습.ipynb", [
