@@ -511,6 +511,34 @@ TRUNC_OLD = "        return completion.choices[0].message.content\n    except Ex
 TRUNC_NEW = '        # 길이 상한에 걸리면 JSON 이 중간에서 끊긴다. 그런데 API 는 **성공으로**\n        # 응답하므로 아래 except 에 걸리지 않고, 몇 셀 뒤에서 json.loads 가\n        # "Unterminated string" 으로 죽는다. 원인에서 먼 곳에서 터지는 것이 가장 나쁘다.\n        if completion.choices[0].finish_reason == "length":\n            print("[잘림] 출력이 max_tokens 에 걸렸습니다. "\n                  "스키마의 max_length 나 max_tokens 를 늘려야 합니다.")\n            return \'error\'\n        return completion.choices[0].message.content\n    except Exception as e:\n        print(e)\n        return \'error\''
 
 
+# 토큰 길이 확인 — 백슬래시 이스케이프를 쓰지 않으려고 실제 개행이 든 상수로 둔다.
+# (여러 겹 문자열을 거치며 백슬래시가 사라지는 사고를 여러 번 겪었다. CLAUDE.md §12)
+SFT_SPLIT_OLD = """# create the splits
+train_dataset = raw_datasets["train"]
+eval_dataset = raw_datasets["test"]"""
+
+SFT_SPLIT_NEW = SFT_SPLIT_OLD + """
+
+# ── 학습 전에 토큰 길이를 본다 ──────────────────────────────────
+# ★ max_length 에 걸리면 뒤가 잘린다. 그런데 잘리는 쪽은 **정답**이다 —
+#   instruction 이 앞에 오기 때문이다. 그러면 loss 는 낮게 나오면서
+#   아무것도 안 배우는 상태가 되고, 에러도 나지 않는다.
+#   조용히 실패하는 종류라 반드시 확인하고 넘어간다.
+_lens = sorted(len(tokenizer.encode(t)) for t in train_dataset["text"])
+_limit = tokenizer.model_max_length
+_over = sum(1 for n in _lens if n > _limit)
+
+print()
+print(f"토큰 길이 — 중앙값 {_lens[len(_lens)//2]:,} · "
+      f"상위10% {_lens[int(len(_lens)*0.9)]:,} · 최대 {_lens[-1]:,}")
+print(f"상한 {_limit:,} 초과: {_over}건 ({_over/len(_lens):.1%})")
+if _over:
+    print("  ★ 초과분은 뒤가 잘립니다. instruction 이 앞이므로 정답이 날아갑니다.")
+    print("    Amazon 노트북의 MAX_SRC 를 줄이거나 model_max_length 를 늘리세요.")
+else:
+    print("  → 잘리는 예시 없음")"""
+
+
 MIGRATIONS: list[Migration] = [
     # =====================================================================
     Migration("HPC_Classification실습.ipynb", [
@@ -615,13 +643,70 @@ MIGRATIONS: list[Migration] = [
              "%pip install -q -U transformers datasets trl peft accelerate", WHY_PIP),
         Rule(3, "pip install -U transformers[torch]",
              "# (셀 2 에서 한 번에 설치하므로 삭제)", WHY_PIP),
+        # ── Phase E: 어제 만든 데이터로 학습한다 ────────────────────
+        # 2일차 Amazon 실습이 만든 것 + 강사 사전생성본을 합쳐 읽는다.
+        # 둘 다 없으면 kullm-v2 로 폴백하되 **조용히 넘어가지 않고 안내한다** —
+        # 폴백인 줄 모르고 "내 데이터로 학습했다" 고 오해하면 안 된다.
         Rule(5,
+             'from datasets import load_dataset\n'
+             '\n'
              'raw_datasets = load_dataset("beomi/KoAlpaca-v1.1a")',
-             '# KoAlpaca 는 CC BY-NC 4.0 (GitHub DATA_LICENSE) 이라 상업 강의에 쓸 수 없다.\n'
-             '# HF 페이지에는 라이선스 태그가 없어 놓치기 쉽다.\n'
-             '# Apache-2.0 인 KULLM 으로 교체한다.\n'
-             'raw_datasets = load_dataset("nlpai-lab/kullm-v2")',
-             "라이선스 저촉 — CC BY-NC 4.0 → Apache-2.0 (F-1)"),
+
+             'import os\n'
+             'from pathlib import Path\n'
+             '\n'
+             'from datasets import load_dataset\n'
+             '\n'
+             '\n'
+             'def _repo_root():\n'
+             '    """cwd 에서 위로 올라가며 repo 루트를 찾는다. setup_vessl.sh 를 표지로 쓴다."""\n'
+             '    p = Path.cwd().resolve()\n'
+             '    return next((c for c in [p, *p.parents] if (c / "setup_vessl.sh").exists()), None)\n'
+             '\n'
+             '\n'
+             '_root = _repo_root()\n'
+             'DATA_DIR = Path(os.environ["HPC_DATA"]) if "HPC_DATA" in os.environ else (\n'
+             '    _root / "data" if _root else None)\n'
+             'ASSETS_DIR = (_root / "assets") if _root else None\n'
+             '\n'
+             '# 어제 직접 만든 것 + 강사가 미리 만들어 둔 것\n'
+             'paths = [p for p in [\n'
+             '    ASSETS_DIR / "amazon_ko_sft.jsonl.gz" if ASSETS_DIR else None,\n'
+             '    DATA_DIR / "amazon_ko_sft.mine.jsonl" if DATA_DIR else None,\n'
+             '] if p is not None and p.exists()]\n'
+             '\n'
+             'if paths:\n'
+             '    raw_datasets = load_dataset("json", data_files=[str(p) for p in paths])\n'
+             '    print(f"내가 만든 데이터로 학습합니다 — {len(raw_datasets[\'train\']):,}건")\n'
+             '    for p in paths:\n'
+             '        print(f"  · {p.name}")\n'
+             'else:\n'
+             '    # ★ 조용히 넘어가면 폴백인 줄 모른다. 크게 알린다.\n'
+             '    print("=" * 60)\n'
+             '    print("★ 생성 데이터가 없어 남의 데이터(kullm-v2)로 대체합니다.")\n'
+             '    print("  2일차 HPC_Amazon요약실습 을 먼저 돌리면")\n'
+             '    print("  직접 만든 데이터로 학습할 수 있습니다.")\n'
+             '    print("=" * 60)\n'
+             '    raw_datasets = load_dataset("nlpai-lab/kullm-v2")',
+             "어제 만든 데이터로 학습하게 한다. 없으면 kullm-v2 폴백 (Phase E)"),
+
+        Rule(6,
+             'indices = range(0,1000)\n'
+             'test_indices = range(1000, 1050)',
+
+             '# 데이터가 얼마나 있을지 모르므로 건수로 자르지 않고 비율로 나눈다.\n'
+             '# (고정 인덱스로 잘랐다가 평가셋이 0건이 된 적이 있다)\n'
+             'n_all = len(raw_datasets["train"])\n'
+             'n_train = min(1000, int(n_all * 0.9))\n'
+             'n_test = min(50, n_all - n_train)\n'
+             '\n'
+             'indices = range(0, n_train)\n'
+             'test_indices = range(n_train, n_train + n_test)\n'
+             'print(f"전체 {n_all:,}건 → 학습 {n_train:,} / 평가 {n_test}")',
+             "건수 하드코딩 제거 — 데이터 크기가 바뀌면 select 가 깨진다 (Phase E)"),
+        Rule(15, SFT_SPLIT_OLD, SFT_SPLIT_NEW,
+             "학습 전 토큰 길이 확인 — 잘리면 정답이 날아가고 조용히 실패한다 (Phase E)"),
+
         Rule(7,
              'def build_messages(example):\n'
              '    messages = [\n'
