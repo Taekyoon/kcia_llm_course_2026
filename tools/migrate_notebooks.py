@@ -337,6 +337,10 @@ else:
 )
 
 
+TRUNC_OLD = "        return completion.choices[0].message.content\n    except Exception as e:\n        print(e)\n        return 'error'"
+TRUNC_NEW = '        # 길이 상한에 걸리면 JSON 이 중간에서 끊긴다. 그런데 API 는 **성공으로**\n        # 응답하므로 아래 except 에 걸리지 않고, 몇 셀 뒤에서 json.loads 가\n        # "Unterminated string" 으로 죽는다. 원인에서 먼 곳에서 터지는 것이 가장 나쁘다.\n        if completion.choices[0].finish_reason == "length":\n            print("[잘림] 출력이 max_tokens 에 걸렸습니다. "\n                  "스키마의 max_length 나 max_tokens 를 늘려야 합니다.")\n            return \'error\'\n        return completion.choices[0].message.content\n    except Exception as e:\n        print(e)\n        return \'error\''
+
+
 MIGRATIONS: list[Migration] = [
     # =====================================================================
     Migration("HPC_Classification실습.ipynb", [
@@ -787,9 +791,128 @@ MIGRATIONS: list[Migration] = [
              f'#   nohup vllm serve {SERVE_LM} --port 8000 > vllm.log 2>&1 &\n'
              f'!curl -s http://localhost:8000/v1/models || echo "서버가 아직 준비되지 않았습니다"',
              "api_server deprecated → vllm serve, 별도 venv 분리 (D-2, D-10)"),
+
+        # ── 구조화 출력 안전장치 (2026-08-26 실행 검증에서 드러남) ──────────
+        # 증상: 셀 53 summarize_by_users 에서
+        #   JSONDecodeError: Unterminated string starting at: line 4 column 24 (char 58)
+        # char 58 은 Step 4 출력의 **첫 user_category 값** 위치와 정확히 일치한다.
+        # 제약 디코딩이 그 문자열을 쓰다가 max_tokens 에 걸려 JSON 이 통째로 잘린 것이다.
+        #
+        # 원인이 둘 겹쳐 있었다.
+        #   1. 모든 str 필드에 **길이 상한이 없다.** 문법상 무한히 길어질 수 있다
+        #   2. temperature 를 지정하지 않아 **기본 1.0** 이다. 추출 작업에 너무 높다
+        # 영어로 돌 때는 우연히 넘어갔고, 한국어화로 출력이 길어지면서 터졌다.
+        Rule(3, "from pydantic import BaseModel",
+             "from pydantic import BaseModel, Field",
+             "스키마 길이 상한을 걸기 위해 Field 를 들여온다"),
+        Rule(3, "from typing import List",
+             "from typing import Annotated, List",
+             "리스트 원소의 길이 상한에는 Annotated 가 필요하다"),
+
+        Rule(13,
+             "class FeatureType(BaseModel):\n"
+             "    feature_type: str\n"
+             "    descript: str\n"
+             "\n"
+             "class FeatureTypeList(BaseModel):\n"
+             "    feature_type_list: List[FeatureType]",
+             "# 길이 상한이 없으면 제약 디코딩이 문자열을 끝없이 늘릴 수 있고,\n"
+             "# 그러면 max_tokens 에서 잘려 JSON 자체가 깨진다 (실행 검증에서 확인).\n"
+             "class FeatureType(BaseModel):\n"
+             "    feature_type: str = Field(max_length=40)\n"
+             "    descript: str = Field(max_length=200)\n"
+             "\n"
+             "class FeatureTypeList(BaseModel):\n"
+             "    feature_type_list: List[FeatureType] = Field(max_length=20)",
+             "스키마 길이 상한 — Step 1 (D-11)"),
+        Rule(13, "              temperature=0.8,\n              top_p=0.95,",
+             "              temperature=0.2,   # 추출 작업이다. 높으면 문자열이 늘어진다\n"
+             "              max_tokens=2048,   # 원본은 상한이 아예 없었다\n"
+             "              top_p=0.95,",
+             "temperature 하향 + max_tokens 부여 — Step 1 (D-11)"),
+
+        Rule(17,
+             "class Subsection(BaseModel):\n"
+             "    subsection: str\n"
+             "    features: List[str]\n"
+             "\n"
+             "class SubsectionList(BaseModel):\n"
+             "    subsection_list: List[Subsection]",
+             "class Subsection(BaseModel):\n"
+             "    subsection: str = Field(max_length=40)\n"
+             "    features: List[Annotated[str, Field(max_length=60)]] = Field(max_length=20)\n"
+             "\n"
+             "class SubsectionList(BaseModel):\n"
+             "    subsection_list: List[Subsection] = Field(max_length=10)",
+             "스키마 길이 상한 — Step 2 (D-11)"),
+        Rule(17, "              max_tokens=1024,\n              top_p=0.95,\n              seed=777,",
+             "              max_tokens=2048,\n              temperature=0.2,\n"
+             "              top_p=0.95,\n              seed=777,",
+             "temperature 하향 + max_tokens 상향 — Step 2 (D-11)"),
+
+        Rule(21,
+             "class ExtractedFeature(BaseModel):\n"
+             "    feature_type: str\n"
+             "    value: str\n"
+             "\n"
+             "class ExtractedFeatureList(BaseModel):\n"
+             "    feature_list: List[ExtractedFeature]",
+             "class ExtractedFeature(BaseModel):\n"
+             "    feature_type: str = Field(max_length=40)\n"
+             "    value: str = Field(max_length=200)\n"
+             "\n"
+             "class ExtractedFeatureList(BaseModel):\n"
+             "    feature_list: List[ExtractedFeature] = Field(max_length=30)",
+             "스키마 길이 상한 — Step 3 (D-11)"),
+        Rule(21, "              max_tokens=1024,\n              top_p=0.95,\n              seed=0,",
+             "              max_tokens=2048,\n              temperature=0.2,\n"
+             "              top_p=0.95,\n              seed=0,",
+             "temperature 하향 + max_tokens 상향 — Step 3 (D-11)"),
+
+        Rule(27,
+             "class ConsumerCategory(BaseModel):\n"
+             "    user_category: str\n"
+             "    describe: str\n"
+             "\n"
+             "class ConsumerCategoryList(BaseModel):\n"
+             "    consuber_categories: List[ConsumerCategory]",
+             "# ★ 여기가 실제로 터진 곳이다. user_category 에 상한이 없어서\n"
+             "#   제약 디코딩이 그 문자열을 쓰다가 max_tokens 에 걸렸다.\n"
+             "class ConsumerCategory(BaseModel):\n"
+             "    user_category: str = Field(max_length=40)\n"
+             "    describe: str = Field(max_length=200)\n"
+             "\n"
+             "class ConsumerCategoryList(BaseModel):\n"
+             "    # 프롬프트가 3~4개라고 했으니 스키마로도 못박는다\n"
+             "    consuber_categories: List[ConsumerCategory] = Field(max_length=6)",
+             "스키마 길이 상한 — Step 4. 실패 지점 (D-11)"),
+        Rule(27, "              max_tokens=1024, top_p=0.95, seed=1234,",
+             "              max_tokens=1024, temperature=0.2, top_p=0.95, seed=1234,",
+             "temperature 하향 — Step 4 (D-11)"),
+
+        Rule(36,
+             "class SummaryDescription(BaseModel):\n    summary: str",
+             "class SummaryDescription(BaseModel):\n"
+             "    summary: str = Field(max_length=400)   # 한 줄 요약이다",
+             "스키마 길이 상한 — 사실 요약 (D-11)"),
+        Rule(36, "              max_tokens=1024, top_p=0.95, seed=1234,",
+             "              max_tokens=1024, temperature=0.2, top_p=0.95, seed=1234,",
+             "temperature 하향 — 사실 요약 (D-11)"),
+
+        Rule(43,
+             "class SummaryDescription(BaseModel):\n    summary: str",
+             "class SummaryDescription(BaseModel):\n"
+             "    summary: str = Field(max_length=1000)   # 여러 줄이라 더 길게 준다",
+             "스키마 길이 상한 — 고객별 요약 (D-11)"),
+        Rule(43, "              max_tokens=1024, top_p=0.95, seed=1234,",
+             "              max_tokens=2048, temperature=0.2, top_p=0.95, seed=1234,",
+             "temperature 하향 + max_tokens 상향 — 고객별 요약 (D-11)"),
     ], [
         GlobalRule(OLD_EXAONE, SERVE_LM,
                    "EXAONE NC 라이선스 → Qwen3 교체 (F-1)", 2),
+        GlobalRule(TRUNC_OLD, TRUNC_NEW,
+                   "잘린 응답은 예외가 아니라 정상 응답이라 except 에 안 걸린다. "
+                   "finish_reason 으로 잡아야 원인 가까이서 드러난다 (D-11)", 6),
         GlobalRule("completion = client.beta.chat.completions.parse(",
                    "completion = client.chat.completions.create(",
                    "openai SDK 2.x 에서 .beta 네임스페이스 이동. 표준 create + response_format 으로 통일", 6),
