@@ -84,11 +84,37 @@ class AppendCells:
 
 
 @dataclass
+class InsertCells:
+    """지정한 셀 **앞에** 셀을 끼워넣는다.
+
+    Rule 은 셀 안의 치환만, AppendCells 는 끝에만 붙는다. 그런데 헤딩이 거의 없는
+    노트북(분류 2셀 · NER 2셀 · RAG 4셀)에는 설명을 **중간에** 넣어야 한다.
+
+    중간 삽입은 그동안 일부러 막아뒀다 — 뒤 셀 번호가 밀려 Rule 의 규칙표가
+    조용히 어긋나기 때문이다. 그래서 AppendCells 와 같은 규율을 쓴다:
+
+        **모든 Rule 이 끝난 뒤, 위치 역순으로** 적용한다.
+
+    그러면 `before_cell` 을 원본 번호로 적을 수 있고, Rule 의 `cell` 번호도
+    영향을 받지 않는다. 역순이라 앞쪽 삽입이 뒤쪽 위치를 밀지도 않는다.
+
+    `expect_head` 는 앵커가 맞는지 확인하는 안전장치다. `AppendCells.after_cell`
+    이 실제로 해줬던 역할과 같다 — 원본이 바뀌면 조용히 엉뚱한 데 붙지 않고 멈춘다.
+    """
+    before_cell: int               # **원본 노트북 기준** 셀 번호. 이 셀 앞에 넣는다
+    cells: list[tuple[str, str]]   # ("markdown" | "code", source)
+    why: str
+    expect_head: str               # 앵커 셀의 첫 줄이 이걸로 시작해야 한다
+
+
+@dataclass
 class Migration:
     name: str                      # 노트북 파일명만. 일자는 layout.py 가 정한다.
     rules: list[Rule] = field(default_factory=list)
     globals_: list[GlobalRule] = field(default_factory=list)
     appends: list[AppendCells] = field(default_factory=list)
+    inserts: list[InsertCells] = field(default_factory=list)
+    drops: list[int] = field(default_factory=list)   # 지울 셀 번호(원본 기준). 빈 셀 정리용
 
     @property
     def rel(self) -> str:
@@ -1468,6 +1494,45 @@ def apply(mig: Migration, dry: bool) -> tuple[int, int, list[str]]:
             cells.append(make_cell(kind, source))
         applied += 1
         log.append(f"  [추가] 셀 {len(ap_.cells)}개 · {ap_.why}")
+
+    # --- 중간 삽입은 **맨 마지막에, 위치 역순으로** ---
+    # 역순이 아니면 앞쪽 삽입이 뒤쪽 before_cell 을 밀어버린다.
+    for ins in sorted(mig.inserts, key=lambda x: -x.before_cell):
+        if not (1 <= ins.before_cell <= len(cells)):
+            raise SystemExit(
+                f"\n[중단] {mig.rel} 삽입 위치 {ins.before_cell} 이 범위를 "
+                f"벗어납니다 (총 {len(cells)}).\n  사유: {ins.why}"
+            )
+        anchor = cell_source(cells[ins.before_cell - 1])
+        head = anchor.lstrip().splitlines()[0] if anchor.strip() else ""
+        if not head.startswith(ins.expect_head):
+            raise SystemExit(
+                f"\n[중단] {mig.rel} 셀 {ins.before_cell} 이 예상한 앵커가 아닙니다.\n"
+                f"  사유: {ins.why}\n"
+                f"  예상 시작: {ins.expect_head!r}\n"
+                f"  실제 첫 줄: {head[:120]!r}\n"
+                f"  → 원본이 바뀌었거나 앞선 규칙이 셀을 옮겼습니다."
+            )
+        for off, (kind, source) in enumerate(ins.cells):
+            cells.insert(ins.before_cell - 1 + off, make_cell(kind, source))
+        applied += 1
+        log.append(f"  [삽입] 셀 {ins.before_cell} 앞에 {len(ins.cells)}개 · {ins.why}")
+
+    # --- 삭제도 맨 마지막에, 역순으로 ---
+    # 빈 셀처럼 지워도 되는 것만 대상이다. 내용이 있으면 중단한다 —
+    # 실수로 코드를 날리는 것이 이 도구에서 가장 위험한 실패다.
+    for idx in sorted(mig.drops, reverse=True):
+        if not (1 <= idx <= len(cells)):
+            raise SystemExit(f"[중단] {mig.rel} 삭제 위치 {idx} 범위 초과 (총 {len(cells)})")
+        body = cell_source(cells[idx - 1]).strip()
+        if body:
+            raise SystemExit(
+                f"\n[중단] {mig.rel} 셀 {idx} 는 비어 있지 않습니다. 지우지 않습니다.\n"
+                f"  내용: {body[:120]!r}"
+            )
+        del cells[idx - 1]
+        applied += 1
+        log.append(f"  [삭제] 빈 셀 {idx}")
 
     if not dry:
         out_path.parent.mkdir(parents=True, exist_ok=True)
