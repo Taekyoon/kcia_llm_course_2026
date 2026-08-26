@@ -160,7 +160,7 @@ echo "======================================================================"
 echo " 4. DSPy → vLLM 연결 + GEPA 실측"
 echo "======================================================================"
 MODEL="$SERVE_MODEL" BASE="$BASE_URL" python - <<'PY'
-import json, os, sys, time
+import json, os, re, sys, time
 
 MODEL, BASE = os.environ["MODEL"], os.environ["BASE"]
 
@@ -212,48 +212,75 @@ except Exception as e:
 print("  GEPA import OK")
 
 SAMPLES = [
-    ("Blue Anker PowerCore 10000 portable charger with USB-C.", "Anker"),
-    ("Red Logitech MX Master 3S wireless mouse for creators.",   "Logitech"),
-    ("Black Sony WH-1000XM5 noise cancelling headphones.",       "Sony"),
-    ("Silver Apple MacBook Air 13 inch M3 laptop computer.",     "Apple"),
-    ("Green Stanley Quencher 40oz stainless steel tumbler.",     "Stanley"),
-    ("White Samsung Galaxy Buds3 Pro wireless earbuds.",         "Samsung"),
+    "Blue Anker PowerCore 10000 portable charger with USB-C fast charging.",
+    "Red Logitech MX Master 3S wireless mouse for creators and designers.",
+    "Black Sony WH-1000XM5 noise cancelling over-ear headphones.",
+    "Silver Apple MacBook Air 13 inch M3 laptop computer for students.",
+    "Green Stanley Quencher 40oz stainless steel insulated tumbler.",
+    "White Samsung Galaxy Buds3 Pro wireless earbuds with ANC.",
+    "Yellow Nike Air Zoom Pegasus 41 running shoes for marathon training.",
+    "Grey Dyson V15 Detect cordless vacuum cleaner with laser dust detection.",
+    "Pink Kindle Paperwhite 12th gen e-reader with 7 inch display.",
+    "Brown Herman Miller Aeron ergonomic office chair size B.",
 ]
-train = [dspy.Example(text=t, brand=b).with_inputs("text") for t, b in SAMPLES[:4]]
-val   = [dspy.Example(text=t, brand=b).with_inputs("text") for t, b in SAMPLES[4:]]
+train = [dspy.Example(text=t).with_inputs("text") for t in SAMPLES[:6]]
+val   = [dspy.Example(text=t).with_inputs("text") for t in SAMPLES[6:]]
 
-class Brand(dspy.Signature):
+class Extract2(dspy.Signature):
     """정보를 뽑는다."""          # ← 일부러 부실하게. 개선 여지를 남긴다
     text: str = dspy.InputField()
-    brand: str = dspy.OutputField()
+    result: str = dspy.OutputField()
 
-# metric 은 프로그램 검증이다. 판정에 LLM 이 끼지 않아 노이즈가 0이다.
-# GEPA 는 5인자 시그니처를 쓰고, float 이 아니라 Prediction(score=, feedback=) 을 받는다.
-# feedback 문자열이 reflection LM 에 전달되는 핵심 채널이라 반드시 채운다.
+# ★ 첫 시도에서 이 테스트를 너무 쉽게 만들어 **아무것도 검증하지 못했다.**
+#   시작 프로그램이 곧바로 1.0 을 받아 GEPA 가
+#     "All subsample scores perfect for parent 0. Skipping."
+#   만 반복하고 변이를 한 번도 시도하지 않았다. 소요시간 측정도 무의미해졌다
+#   (reflection LM 을 아예 호출하지 않았으므로).
+#
+#   그래서 노트북 3막과 **같은 난이도**로 맞춘다 — 부실한 시작 프롬프트로는
+#   만족시킬 수 없는 형식 요구를 걸어 개선 여지를 확보한다.
+REQ = ["category", "features", "target_users"]
+HANGUL = re.compile(r"[가-힣]")
+
 def metric(gold, pred, trace=None, pred_name=None, pred_trace=None):
-    got  = (pred.brand or "").strip().lower()
-    want = gold.brand.strip().lower()
-    ok = want in got
-    return dspy.Prediction(
-        score=float(ok),
-        feedback="정답" if ok else f"'{gold.text[:40]}' 의 브랜드는 {gold.brand} 인데 {pred.brand!r} 로 답함",
-    )
+    raw = (getattr(pred, "result", "") or "").strip()
+    try:
+        obj = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return dspy.Prediction(score=0.0,
+            feedback="JSON 파싱 실패. 코드블록이나 설명 없이 JSON 객체만 출력해야 함")
+    if not isinstance(obj, dict):
+        return dspy.Prediction(score=0.0, feedback="최상위가 JSON 객체가 아님")
 
-CALLS = 40      # 실측용 소량. 강의 노트북에서는 120 을 쓸 예정이다.
+    bad = [f"필수 키 '{k}' 누락" for k in REQ if k not in obj]
+    for k in ["features", "target_users"]:
+        if k in obj and not (isinstance(obj[k], list) and obj[k]):
+            bad.append(f"{k} 는 비어 있지 않은 배열이어야 함")
+    body = json.dumps(obj, ensure_ascii=False)
+    if len(HANGUL.findall(body)) / max(len(body), 1) < 0.15:
+        bad.append("값이 한국어가 아님. 한국어로 작성해야 함")
+
+    return dspy.Prediction(score=max(0.0, 1.0 - 0.25 * len(bad)),
+                           feedback="; ".join(bad) or "정상")
+
+def score(p):
+    return sum(metric(ex, p(text=ex.text)).score for ex in val) / len(val)
+
+CALLS = 60      # 실측용. 강의 노트북에서는 120 을 쓸 예정이다.
 print(f"\n  GEPA compile 시작 — max_metric_calls={CALLS}")
 t0 = time.time()
 try:
     opt = GEPA(metric=metric, max_metric_calls=CALLS,
                reflection_lm=lm, num_threads=8, track_stats=True)
-    optimized = opt.compile(dspy.Predict(Brand), trainset=train, valset=val)
+    base_prog = dspy.Predict(Extract2)
+    before = score(base_prog)
+    print(f"  최적화 전 val 점수: {before:.3f}")
+    optimized = opt.compile(base_prog, trainset=train, valset=val)
 except Exception as e:
     print(f"  ★ GEPA compile 실패: {type(e).__name__}: {e}")
     import traceback; traceback.print_exc()
     sys.exit(1)
 el = time.time() - t0
-
-def score(p):
-    return sum(metric(ex, p(text=ex.text)).score for ex in val) / len(val)
 
 print(f"  compile 완료 — {el:.1f}초 ({CALLS}회 기준)")
 print(f"  → 강의에서 120회면 약 {el * 120 / CALLS / 60:.1f}분 예상")
@@ -262,7 +289,10 @@ print("  최적화 후 프롬프트(instructions):")
 for name, pr in optimized.named_predictors():
     print(f"    [{name}] {pr.signature.instructions[:400]}")
 print()
-print(f"  val 점수(최적화본): {score(optimized):.2f}")
+after = score(optimized)
+print(f"  val 점수  {before:.3f}  →  {after:.3f}   ({after-before:+.3f})")
+print("  ※ 개선폭이 0 이면 GEPA 가 변이를 시도조차 안 했을 수 있습니다.")
+print("    로그에 'All subsample scores perfect' 가 반복되면 그 경우입니다.")
 print("  ※ 4B 하나로 task+reflection 을 겸하므로 개선폭이 작을 수 있습니다.")
 print("    점수가 안 오르면 노트북에서는 시작 프롬프트를 더 부실하게 주거나")
 print("    직접 구현(OPRO 루프)으로 전환합니다.")
