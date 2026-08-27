@@ -250,15 +250,17 @@ cat <<EOF
 
 실습 노트북은 work/notebook/ 에 있습니다. **폴더 안의 순서가 곧 진행 순서**입니다.
 
-  1일차 (2단원)  HPC_Classification실습 → HPC_NER실습
-  2일차 (3단원)  HPC_데이터처리실습 → HPC_Amazon요약실습
-                 → HPC_프롬프트최적화실습 → HPC_MiniGPT실습
-  3일차 (4단원)  HPC_평가실습 → HPC_퓨샷실습 → HPC_SFT실습
-                 → HPC_DPO실습 → HPC_GRPO실습 → HPC_BM25_RAG실습(심화)
+  1일차 (2단원)  0_Classification → 1_NER
+  2일차 (3단원)  0_데이터처리 → 1_MiniGPT(+CPT) → 2_Amazon요약 → 3_프롬프트최적화
+  3일차 (4단원)  0_BM25_RAG → 1_평가 → 2_퓨샷 → 3_SFT → 4_DPO → 5_GRPO → 6_RAG개선
 
-  ★ 2일차는 앞 노트북이 만든 파일을 뒤 노트북이 받습니다. 순서를 지켜주세요.
-      데이터처리 → \$HPC_DATA/ko_wiki_clean.jsonl → MiniGPT 이어학습(CPT)
-      Amazon    → \$HPC_DATA/amazon_ko_sft.mine.jsonl → 3일차 SFT
+  (파일명 앞 숫자가 곧 진행 순서입니다. 정본은 tools/layout.py)
+
+  ★ 앞 노트북이 만든 파일을 뒤 노트북이 받습니다. 순서를 지켜주세요.
+      2일차 데이터처리 → \$HPC_DATA/ko_wiki_clean.jsonl → MiniGPT 이어학습(CPT)
+      2일차 Amazon    → \$HPC_DATA/amazon_ko_sft.mine.jsonl → 3일차 SFT
+      3일차 RAG       → bm25_retriever/ 인덱스           → 3일차 RAG개선
+      3일차 SFT       → data/sft_model 어댑터            → 3일차 DPO · RAG개선
 
 --- 서빙 실습(Amazon · 프롬프트최적화 · 퓨샷 · 평가 · RAG)을 하려면 ---
 
@@ -286,7 +288,7 @@ cat <<EOF
 
   노트북은 기본 커널에서 그대로 실행합니다. HTTP 로 붙으므로 venv 를 오갈 필요 없습니다.
 
---- MiniGPT 실습(1일차)도 이 커널에서 돌아갑니다 ---
+--- MiniGPT 실습(2일차)도 이 커널에서 돌아갑니다 ---
 
   예전에는 Keras/TensorFlow 스택이라 별도 venv 가 필요했지만,
   PyTorch + HuggingFace 로 재작성해서 이제 나머지 8종과 같은 환경을 씁니다.
