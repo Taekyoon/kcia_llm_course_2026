@@ -31,18 +31,22 @@ SRC = ROOT / "notebook"            # 원본 — 읽기 전용 (CLAUDE.md §1)
 WORK = ROOT / "work" / "notebook"  # 산출물 — 매번 새로 씀
 
 # 일자 안의 순서가 곧 **강의 진행 순서**다. 파일 의존도 이 순서를 따른다.
-#   2일차: 데이터처리 → (Amazon → 프롬프트최적화) → MiniGPT
-#          ko_wiki_clean.jsonl 을 데이터처리가 만들고 MiniGPT 가 받는다.
+#   2일차: (데이터처리 → MiniGPT) → (Amazon → 프롬프트최적화)
+#          내용상 독립인 두 갈래라 갈래별로 묶는다. 정제 산출물을 MiniGPT 가 받고,
+#          Amazon·프롬프트최적화 산출물은 3일차 SFT 가 받는다.
 LAYOUT: dict[str, list[str]] = {
     "1일차": [                       # 2단원 ⑤ — 인코더 모델 실습
         "HPC_Classification실습.ipynb",
         "HPC_NER실습.ipynb",
     ],
-    "2일차": [                       # 3단원 ⑧⑨⑩
+    "2일차": [                       # 3단원 ⑧⑨⑩ — 갈래별로 묶는다
+        # 갈래 A. 사전학습 축: 정제한 데이터를 바로 이어학습에 쓴다
         "HPC_데이터처리실습.ipynb",      # ⑧ 정제
+        "HPC_MiniGPT실습.ipynb",       # ⑨ 사전학습 + ⑩ CPT (위 산출물을 받는다)
+        # 갈래 B. 생성 데이터 축: 여기서 만든 데이터가 3일차 SFT 로 간다
+        #         vLLM 서버는 이 구간에서만 필요하다 (학습과 GPU 를 다투지 않게)
         "HPC_Amazon요약실습.ipynb",     # ⑧ 구조화 추출
         "HPC_프롬프트최적화실습.ipynb",   # ⑧ 번역 → judge → 자동 최적화
-        "HPC_MiniGPT실습.ipynb",       # ⑨ + ⑩ CPT 데모
     ],
     "3일차": [                       # 4단원 ⑪⑫⑬⑭ + 심화
         "HPC_평가실습.ipynb",           # ⑪ 태스크 정의와 평가
