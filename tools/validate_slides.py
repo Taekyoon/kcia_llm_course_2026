@@ -99,7 +99,8 @@ def main() -> None:
                 from migrate_slides import NEW_SLIDES
                 for spec in NEW_SLIDES[it.key]:
                     joined = " ".join(slide_texts(prs.slides[idx]))
-                    want_txt = spec["toc"][0] if "toc" in spec else spec["title"]
+                    want_txt = (spec["toc"][0].split(chr(9))[-1]   # 자동번호 도너는 텍스트 번호를 뗀다
+                                if "toc" in spec else spec["title"])
                     if want_txt not in joined:
                         fails.append(f"{day} 새 p{idx+1}: 신규 장 내용 누락 — {want_txt!r}")
                     idx += 1
