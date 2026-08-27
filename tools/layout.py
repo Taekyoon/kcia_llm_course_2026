@@ -48,13 +48,17 @@ LAYOUT: dict[str, list[str]] = {
         "HPC_Amazon요약실습.ipynb",     # ⑧ 구조화 추출
         "HPC_프롬프트최적화실습.ipynb",   # ⑧ 번역 → judge → 자동 최적화
     ],
-    "3일차": [                       # 4단원 ⑪⑫⑬⑭ + 심화
+    "3일차": [                       # 4단원 ⑪⑫⑬⑭ — RAG 수미상관 구조
+        # 아침: 시스템을 먼저 만든다. 서버(vLLM 4B)는 앞 세 실습이 연달아 쓴다
+        "HPC_BM25_RAG실습.ipynb",       # 심화 → 선두로. 하루의 축이 되는 시스템
         "HPC_평가실습.ipynb",           # ⑪ 태스크 정의와 평가
         "HPC_퓨샷실습.ipynb",           # ⑫ Few-shot
+        # 오후: 모델 개선 (서버 내리고 학습)
         "HPC_SFT실습.ipynb",           # ⑬ 파인튜닝과 LoRA
         "HPC_DPO실습.ipynb",           # ⑭ Preference Learning
         "HPC_GRPO실습.ipynb",          # ⑭ GRPO
-        "HPC_BM25_RAG실습.ipynb",       # 심화 (시간이 남으면)
+        # 마무리: 아침의 인덱스에 학습 전/후 0.6B 를 꽂아 전후 비교 (서버 불필요)
+        "HPC_RAG개선실습.ipynb",        # 신규 — 수미상관의 닫는 괄호
     ],
 }
 

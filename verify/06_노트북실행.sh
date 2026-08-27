@@ -62,6 +62,7 @@ SLOW=(
   "$(nbpath HPC_SFT실습)|2400"
   "$(nbpath HPC_DPO실습)|2400"
   "$(nbpath HPC_GRPO실습)|3000"
+  "$(nbpath HPC_RAG개선실습)|600"           # 아침 rag 의 인덱스 + sft 산출물을 쓴다
 )
 
 case "${1:-fast}" in
@@ -71,6 +72,7 @@ case "${1:-fast}" in
   amazon)    TARGETS=("$(nbpath HPC_Amazon요약실습)|1200") ;;
   promptopt) TARGETS=("$(nbpath HPC_프롬프트최적화실습)|1800") ;;
   rag)       TARGETS=("$(nbpath HPC_BM25_RAG실습)|900") ;;
+  ragcheck)  TARGETS=("$(nbpath HPC_RAG개선실습)|600") ;;
   fewshot)   TARGETS=("$(nbpath HPC_퓨샷실습)|1800") ;;
   minigpt)   TARGETS=("$(nbpath HPC_MiniGPT실습)|3000") ;;
   data)      TARGETS=("$(nbpath HPC_데이터처리실습)|1200") ;;
