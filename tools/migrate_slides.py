@@ -563,55 +563,79 @@ NEW_SLIDES: dict[str, list[dict]] = {
 # ---------------------------------------------------------------------------
 # 텍스트 채우기 (도너 복제 후)
 # ---------------------------------------------------------------------------
-def _set_text(tf, lines: list[tuple[int, str]], base_size: Pt | None) -> None:
-    """텍스트 프레임을 비우고 (level, text) 목록으로 다시 채운다.
-    서식은 도너 첫 run 의 크기만 물려받는다 — 텍스트 초안 수준(사용자 확정)."""
-    first_run = None
-    for p_el in tf.paragraphs:
-        for r in p_el.runs:
-            first_run = r
-            break
-        if first_run:
-            break
-    font_name = first_run.font.name if first_run else None
-    tf.clear()
-    for i, (level, text) in enumerate(lines):
-        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-        p.text = text
-        p.level = min(level, 4)
-        for r in p.runs:
-            if font_name:
-                r.font.name = font_name
-            if base_size:
-                r.font.size = base_size
+def _para_templates(tf) -> dict:
+    """상자의 레벨별 <a:p> 를 서식 템플릿으로 수집한다 (run 이 있는 첫 문단)."""
+    tmpl = {}
+    for para in tf.paragraphs:
+        if para.level not in tmpl and para.runs:
+            tmpl[para.level] = para._p
+    if not tmpl:
+        raise SystemExit("[중단] 도너 상자에 run 있는 문단이 없습니다 — 도너를 바꾸세요")
+    return tmpl
+
+
+def _make_para(tmpl_p, text: str, size_scale: float | None = None):
+    """템플릿 문단을 복제해 텍스트만 갈아 끼운다. 서식(pPr·rPr)은 그대로."""
+    p_el = copy.deepcopy(tmpl_p)
+    runs = p_el.findall(qn("a:r"))
+    for r in runs[1:]:
+        p_el.remove(r)
+    for br in p_el.findall(qn("a:br")):
+        p_el.remove(br)
+    t = runs[0].find(qn("a:t"))
+    t.text = text
+    if size_scale is not None:
+        rPr = runs[0].find(qn("a:rPr"))
+        if rPr is not None and rPr.get("sz"):
+            rPr.set("sz", str(int(int(rPr.get("sz")) * size_scale)))
+    return p_el
+
+
+def _fill_box(tf, lines: list[tuple[int, str]], size_scale: float | None = None) -> None:
+    """상자를 (level, text) 목록으로 다시 채운다 — 도너의 레벨별 서식을 유지한 채."""
+    tmpl = _para_templates(tf)
+    levels = sorted(tmpl)
+
+    def pick(lv):
+        return tmpl[lv] if lv in tmpl else tmpl[min(levels, key=lambda a: abs(a - lv))]
+
+    new_ps = [_make_para(pick(lv), tx, size_scale) for lv, tx in lines]
+    txBody = tf._txBody
+    for old in txBody.findall(qn("a:p")):
+        txBody.remove(old)
+    for np_ in new_ps:
+        txBody.append(np_)
 
 
 def fill_new_slide(part, spec: dict) -> None:
     slide = Slide(part._element, part)
+    boxes = [sh for sh in slide.shapes
+             if sh.has_text_frame and BOILER not in sh.text_frame.text
+             and sh.text_frame.text.strip()]
 
     if "toc" in spec:
-        # 목차 도너: "목 차" 제목은 그대로 두고, 문단이 가장 많은 본문 상자만 교체
-        boxes = [sh for sh in slide.shapes
-                 if sh.has_text_frame and BOILER not in sh.text_frame.text
-                 and sh.text_frame.text.strip()]
+        # 목차 도너: "목 차" 제목은 그대로, 본문 상자만 교체.
+        # 항목이 많으면 원본(4항목) 대비 비율로 글자를 줄여 상자를 넘치지 않게 한다.
         body = max(boxes, key=lambda b: len(b.text_frame.paragraphs))
-        _set_text(body.text_frame, [(0, line) for line in spec["toc"]], None)
+        n = len(spec["toc"])
+        scale = None if n <= 5 else round(5.5 / n, 3)
+        _fill_box(body.text_frame, [(0, line) for line in spec["toc"]], scale)
         return
 
-    boxes = [sh for sh in slide.shapes
-             if sh.has_text_frame and BOILER not in sh.text_frame.text]
-    boxes = [b for b in boxes if b.text_frame.text.strip()]
     if len(boxes) < 3:
         raise SystemExit(f"[중단] 도너 장의 텍스트 상자가 예상과 다릅니다: {len(boxes)}개")
     boxes.sort(key=lambda b: (b.top or 0))
-    header, body, tagline = boxes[0], max(boxes[1:], key=lambda b: (b.width or 0) * (b.height or 0)), None
+    header = boxes[0]
+    body = max(boxes[1:], key=lambda b: (b.width or 0) * (b.height or 0))
     tagline = next((b for b in boxes[1:] if b is not body), None)
 
-    _set_text(header.text_frame, [(0, spec["header"])], None)
+    _fill_box(header.text_frame, [(0, spec["header"])])
+    # 도너 본문의 레벨 구조: lvl0 = 소제목 스타일(불릿·24pt), lvl1/2 = 하위 불릿.
+    # 우리의 title → lvl0, bullets 의 level+1 → lvl1/2 로 자연 대응된다.
     lines = [(0, spec["title"])] + [(lv + 1, tx) for lv, tx in spec["bullets"]]
-    _set_text(body.text_frame, lines, None)
+    _fill_box(body.text_frame, lines)
     if tagline is not None:
-        _set_text(tagline.text_frame, [(0, "")], None)
+        _fill_box(tagline.text_frame, [(0, "")])
 
 
 # ---------------------------------------------------------------------------
