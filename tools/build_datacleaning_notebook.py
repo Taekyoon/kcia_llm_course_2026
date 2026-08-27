@@ -28,6 +28,7 @@ import json
 from pathlib import Path
 
 from layout import work_path
+from nbcommon import save_notebook
 from nbcommon import DATA_DIR_CODE, DATA_DIR_MD, jsonl_save_code
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -47,7 +48,7 @@ def code(t: str) -> None:
 
 # =====================================================================
 md("""
-# Pre-training 데이터 처리
+# 사전학습(Pre-training) 데이터 처리
 
 LLM 을 학습시키기 전에 **데이터를 정제하는** 과정을 다룹니다.
 
@@ -93,7 +94,7 @@ md("""
 
 한국어 위키백과를 씁니다. 3일차 RAG 실습에서 쓰는 것과 같은 데이터입니다.
 
-실습 시간을 고려해 일부만 가져옵니다. 실제 Pre-training 은 이보다
+실습 시간을 고려해 일부만 가져옵니다. 실제 사전학습은 이보다
 **수천 배 큰** 코퍼스를 다룹니다. 처리 원리는 같습니다.
 """)
 
@@ -494,7 +495,7 @@ md("""
 
 정제했으면 **저장해야 씁니다.** 지금까지의 결과는 메모리 안에만 있습니다.
 
-바로 다음 노트북(`HPC_MiniGPT실습`)에서 이 파일을 읽어 **이어학습(Continuous
+오늘 마지막 실습(`HPC_MiniGPT실습`)에서 이 파일을 읽어 **이어학습(Continuous
 Pre-training)** 에 씁니다. 오늘 만든 데이터로 오늘 학습하게 됩니다.
 """)
 
@@ -537,7 +538,7 @@ card = f"""# ko_wiki_clean
 - 문서당 중앙값 {sorted(len(d['text']) for d in kept)[len(kept)//2]:,}자
 
 ## 한계
-- 앞 {N_DOCS:,}건만 썼습니다. 실제 Pre-training 은 수십~수백 GB 규모입니다.
+- 앞 {N_DOCS:,}건만 썼습니다. 실제 사전학습은 수십~수백 GB 규모입니다.
 - 근사 중복은 임계값 {THRESHOLD} 기준입니다. 낮추면 더 지우고 정상 문서도 지웁니다.
 - 개인정보·유해표현 필터는 넣지 않았습니다. 실서비스에는 반드시 필요합니다.
 """
@@ -550,7 +551,7 @@ print(card)
 md("""
 ## 마무리
 
-Pre-training 데이터가 어떻게 만들어지는지 봤습니다.
+사전학습 데이터가 어떻게 만들어지는지 봤습니다.
 
 - **중복**은 정확 중복과 근사 중복으로 나뉘고, 후자가 훨씬 많고 잡기 어렵습니다
 - **MinHash + LSH** 로 비교 횟수를 크게 줄일 수 있습니다
@@ -558,9 +559,9 @@ Pre-training 데이터가 어떻게 만들어지는지 봤습니다.
 - 실무에서는 `datatrove` 같은 도구를 쓰지만 **원리와 확인 과정은 같습니다**
 - 만든 데이터에는 **데이터셋 카드**를 붙입니다
 
-방금 저장한 `ko_wiki_clean.jsonl` 을 **바로 다음 노트북(`HPC_MiniGPT실습`)의
+방금 저장한 `ko_wiki_clean.jsonl` 을 **오늘 마지막 실습(`HPC_MiniGPT실습`)의
 이어학습 단계에서 읽습니다.** 동화로 학습한 작은 GPT 에 이 위키 코퍼스를 넣으면
-어떻게 되는지 — Continuous Pre-training 이 왜 까다로운지 직접 보게 됩니다.
+어떻게 되는지 — 이어학습(CPT)이 왜 까다로운지 직접 보게 됩니다.
 
 좋은 모델은 좋은 데이터에서 나오고, 그 데이터는 이런 과정을 거쳐 만들어집니다.
 """)
@@ -590,7 +591,7 @@ def build() -> dict:
 
 def main() -> None:
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(json.dumps(build(), ensure_ascii=False, indent=1), encoding="utf-8")
+    save_notebook(OUT, build())
     n_code = sum(1 for k, _ in CELLS if k == CODE)
     print(f"생성: {OUT}")
     print(f"  셀 {len(CELLS)}개 (코드 {n_code} · 마크다운 {len(CELLS) - n_code})")

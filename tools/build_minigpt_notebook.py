@@ -34,6 +34,7 @@ import json
 from pathlib import Path
 
 from layout import work_path
+from nbcommon import save_notebook
 from nbcommon import DATA_DIR_CODE, DATA_DIR_MD
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -678,12 +679,12 @@ md("""
 
 여기에 다른 도메인을 가르치고 싶다면 어떻게 할까요. 처음부터 다시 학습시키는 것은
 너무 비쌉니다. 그래서 **이미 학습된 모델에 새 데이터를 이어서 학습**시킵니다.
-이것을 Continuous Pre-training(CPT) 이라고 합니다.
+이것을 **이어학습**(Continuous Pre-training, CPT)이라고 합니다.
 
 한국어 LLM 은 대부분 이 방식으로 만들어졌습니다. `llama-2-ko` 는 Llama-2 에,
 `EEVE-Korean` 은 SOLAR 에 한국어를 이어 학습시킨 것입니다.
 
-**말은 간단한데 실제로는 까다롭습니다.** 바로 앞 노트북(`HPC_데이터처리실습`)에서
+**말은 간단한데 실제로는 까다롭습니다.** 오늘 첫 실습(`HPC_데이터처리실습`)에서
 정제한 위키 코퍼스를 넣어보면 무슨 일이 벌어지는지 보입니다.
 """)
 
@@ -1032,7 +1033,7 @@ md("""
 
 내일은 이 모델을 **쓸 만하게 만드는** 단계로 갑니다.
 사전학습된 모델은 다음 토큰을 이어붙일 뿐 지시를 따르지는 못합니다.
-그것을 가르치는 것이 Post-training 입니다.
+그것을 가르치는 것이 포스트트레이닝(Post-training)입니다.
 """)
 
 
@@ -1063,7 +1064,7 @@ def build() -> dict:
 def main() -> None:
     nb = build()
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(json.dumps(nb, ensure_ascii=False, indent=1), encoding="utf-8")
+    save_notebook(OUT, nb)
     n_code = sum(1 for k, _ in CELLS if k == CODE)
     n_md = len(CELLS) - n_code
     print(f"생성: {OUT}")

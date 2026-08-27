@@ -28,6 +28,7 @@ import json
 from pathlib import Path
 
 from layout import work_path
+from nbcommon import save_notebook
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = work_path("HPC_평가실습.ipynb")   # 일자 배치는 tools/layout.py 가 정한다
@@ -62,10 +63,10 @@ md("""
 4. **LLM-as-judge** 로 평가합니다 — 사람 대신 모델이 채점
 5. 어떤 상황에 어떤 방법을 쓸지 정리합니다
 
-## 앞 실습과의 연결
+## 이 실습의 자리
 
-2일차에 SFT·DPO·GRPO 로 모델을 학습시켰습니다. 그런데 **정말 좋아졌는지** 는
-확인하지 않았습니다. 여기서 그걸 합니다.
+오늘 이 뒤에 SFT·DPO·GRPO 로 모델을 학습시킵니다. 학습을 하고 나면 반드시
+**정말 좋아졌는가**를 물어야 하는데, 그 확인 수단을 **먼저** 갖춰 두는 것이 이 실습입니다.
 """)
 
 code("""
@@ -127,8 +128,8 @@ print(f"평가 데이터 {len(eval_set)}건")
 md("""
 ## 2. 모델 응답 만들기
 
-2일차에서 학습시킨 SFT 모델이 있으면 그것을 씁니다.
-없으면 미리 준비한 예시 응답으로 진행합니다 — **평가 방법 자체를 익히는 것이 목적**이라
+미리 준비한 예시 응답으로 진행합니다. 오늘 뒤에서 SFT 모델을 학습시키고 나면
+그 응답을 여기 넣어 평가해 볼 수도 있습니다 — **평가 방법 자체를 익히는 것이 목적**이라
 모델이 무엇이든 흐름은 같습니다.
 """)
 
@@ -281,7 +282,7 @@ LLM-as-judge 는 그 중간입니다 — 의미를 어느 정도 이해하면서
 **핵심은 채점 기준을 명확히 주는 것입니다.** "좋은 답변인가?" 라고만 물으면
 기준이 매번 달라집니다. 무엇을 어떻게 볼지 지정해야 합니다.
 
-> 앞 실습에서 띄운 vLLM 서버를 씁니다.
+> 2일차에 쓴 것과 같은 vLLM 서버를 씁니다. 아직 안 떠 있으면 아래 명령으로 띄웁니다.
 > `source /opt/vllm-env/bin/activate && vllm serve ... --port 8000`
 """)
 
@@ -434,8 +435,8 @@ md("""
 - **LLM-as-judge** 는 의미를 보지만 비용과 편향이 있습니다
 - 지표 하나로 판단하지 않습니다. **성공 기준이 여러 개면 지표도 여러 개**입니다
 
-앞에서 SFT·DPO·GRPO 로 모델을 바꿔봤습니다.
-이제 그 변화가 **실제로 나아진 것인지 확인할 수단**이 생겼습니다.
+이제 이 뒤의 SFT·DPO·GRPO 에서 모델을 바꿀 때마다,
+그 변화가 **실제로 나아진 것인지 확인할 수단**이 생겼습니다.
 """)
 
 
@@ -463,7 +464,7 @@ def build() -> dict:
 
 def main() -> None:
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(json.dumps(build(), ensure_ascii=False, indent=1), encoding="utf-8")
+    save_notebook(OUT, build())
     n_code = sum(1 for k, _ in CELLS if k == CODE)
     print(f"생성: {OUT}")
     print(f"  셀 {len(CELLS)}개 (코드 {n_code} · 마크다운 {len(CELLS) - n_code})")

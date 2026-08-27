@@ -35,6 +35,7 @@ from __future__ import annotations
 import json
 
 from layout import work_path
+from nbcommon import save_notebook
 from nbcommon import DATA_DIR_CODE, DATA_DIR_MD
 
 OUT = work_path("HPC_프롬프트최적화실습.ipynb")   # 일자 배치는 tools/layout.py 가 정한다
@@ -788,7 +789,7 @@ def build() -> dict:
 
 def main() -> None:
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(json.dumps(build(), ensure_ascii=False, indent=1), encoding="utf-8")
+    save_notebook(OUT, build())
     n_code = sum(1 for k, _ in CELLS if k == CODE)
     print(f"생성: {OUT}")
     print(f"  셀 {len(CELLS)}개 (코드 {n_code} · 마크다운 {len(CELLS) - n_code})")

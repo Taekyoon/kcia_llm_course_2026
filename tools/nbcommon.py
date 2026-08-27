@@ -87,3 +87,49 @@ print()
 print("첫 줄:")
 print(f"  {{out_path.open(encoding='utf-8').readline()[:200]}}")
 '''.strip("\n")
+
+
+# ---------------------------------------------------------------------------
+# 산문 다듬기 — 조사 붙여쓰기
+# ---------------------------------------------------------------------------
+# 마크다운에 "mmBERT-base 는", "LLM 을" 처럼 영단어·코드·숫자 뒤 조사를 띄어 쓴
+# 버릇이 전체에 깔려 있었다. 한국어 정서법은 조사를 앞말에 붙인다.
+# 손으로 수백 곳을 고치는 대신 **노트북을 쓸 때 일괄 적용**한다 —
+# 앞으로 쓰는 설명에도 자동으로 적용되므로 다시는 흩어지지 않는다.
+#
+# 안전 장치:
+#   - 앞 글자가 ASCII·백틱·괄호닫기·별표일 때만 붙인다. 한글-한글 띄어쓰기는
+#     조사인지 명사인지 기계로 구분할 수 없으므로 건드리지 않는다.
+#   - 펜스 코드 블록(```)은 통째로 건너뛴다.
+
+import re as _re
+
+_JOSA = (
+    "입니다|이었습니다|였습니다|이라는|라는|이라고|라고|이라도|라도|이라면|라면|"
+    "이란|이라|이며|이고|이나|처럼|부터|까지|마다|보다|에서|에게|으로|"
+    "인지|인데|인가|이면|은|는|이|가|을|를|과|와|의|도|만|에|로|나|인"
+)
+_TAIL = "(?=[" + chr(9) + chr(10) + " .,:;!?)'" + chr(34) + "]|$)"
+_JOSA_RE = _re.compile("([A-Za-z0-9_`%)*'" + chr(34) + "]) (" + _JOSA + ")" + _TAIL)
+
+
+def attach_josa(text: str) -> str:
+    """영단어·코드 뒤에 띄어 쓴 조사를 앞말에 붙인다. 펜스 코드는 제외."""
+    parts = text.split("```")
+    for i in range(0, len(parts), 2):        # 짝수 인덱스만 = 코드 펜스 바깥
+        parts[i] = _JOSA_RE.sub(chr(92) + "1" + chr(92) + "2", parts[i])
+    return "```".join(parts)
+
+
+def save_notebook(path, nb: dict) -> None:
+    """노트북을 저장한다. 마크다운 셀에 산문 다듬기를 일괄 적용한다."""
+    import json as _json
+    for c in nb.get("cells", []):
+        if c.get("cell_type") != "markdown":
+            continue
+        src = "".join(c["source"])
+        fixed = attach_josa(src)
+        if fixed != src:
+            c["source"] = fixed.splitlines(keepends=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_json.dumps(nb, ensure_ascii=False, indent=1), encoding="utf-8")

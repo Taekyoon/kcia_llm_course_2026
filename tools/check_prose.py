@@ -35,6 +35,7 @@ BAD_TERMS = {
     "RLPH": "RLHF",
     "높히": "높이",
     "Persistance": "Persistence",
+    "미세조정": "파인튜닝",
 }
 
 # 영어 헤딩이어도 되는 것 — 고유 기술용어
