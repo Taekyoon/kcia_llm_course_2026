@@ -84,8 +84,14 @@ PLACEMENT: dict[str, list] = {
         *refs("1일차", 59, 61),                # GPT·ChatGPT (3)
         ref("1일차", 21),                      # 간지: 자연어처리 머신러닝 소개 (⑤ 실습 도입)
         *refs("1일차", 22, 26),                # 챗봇 NLP 사례 (5)
-        *refs("1일차", 27, 36),                # 분류 실습 (10) — mmBERT 로 치환
-        *refs("1일차", 37, 47),                # NER 실습 (11) — mmBERT 로 치환
+        # 분류·NER 실습 — mmBERT 기준. p29·30(BERT 토큰 출력 예시)·p38(kor_ner
+        # DatasetDict 출력)은 교체 모델·데이터와 맞지 않아 드롭, 신규로 대체 (자기검토)
+        *refs("1일차", 27, 28),
+        NewSlide("tok_demo", "mmBERT 토크나이저 확인 (신규 1장 — BERT 토큰 예시 2장 대체)"),
+        *refs("1일차", 31, 36),
+        ref("1일차", 37),
+        NewSlide("ner_data", "klue/klue ner 데이터 (신규 1장 — kor_ner 출력 장 대체)"),
+        *refs("1일차", 39, 47),
         ref("1일차", 91),                      # 감사합니다
     ],
 
@@ -99,9 +105,10 @@ PLACEMENT: dict[str, list] = {
         ref("1일차", 62),                      # 간지: 미니 GPT 만들기
         # 원본 p63-90(28장)은 영어 simplebooks + tf.data + keras-nlp 전면이라
         # 치환이 불가능 — 현행 PyTorch 노트북 기준 신규 18장으로 교체 (E-3)
-        NewSlide("minigpt", "미니GPT — 현행 노트북(PyTorch+HF·한국어 동화·CPT) 기준 신규 ~18장"),
-        ref("3일차", 3),                       # 간지: 도메인 최적화 프리트레인 (CPT)
-        *refs("3일차", 4, 16),                 # CPT (13)
+        NewSlide("minigpt", "미니GPT 본체 — 현행 노트북(PyTorch+HF·한국어 동화) 기준 신규 13장"),
+        ref("3일차", 3),                       # 간지: 도메인 최적화 프리트레이닝 (CPT 이론)
+        *refs("3일차", 4, 16),                 # CPT 이론 (13)
+        NewSlide("minigpt_cpt", "CPT 실습 — 이론 뒤에 실습 (신규 6장, 자기검토에서 순서 교정)"),
         ref("3일차", 17),                      # 간지: vLLM 데이터처리 실습 (Amazon)
         *refs("3일차", 18, 53, skip=(26, 27)), # Amazon 개요+7단계 (34) — p25 3중복 정리
         NewSlide("promptopt", "프롬프트 자동 최적화 안내 (신규 ~4장 — 3막 구조)"),
@@ -122,11 +129,14 @@ PLACEMENT: dict[str, list] = {
         NewSlide("rag_bm25", "BM25 vs 임베딩 · 청킹 (노트북 핵심 개념)"),
         *refs("3일차", 59, 65, skip=(62,)),    # 리트리버·검색·Q&A (p61 중복 정리)
         NewSlide("rag_prompt", "프롬프트 교체의 함정 · 검색/생성 실패 진단"),
-        *refs("3일차", 66, 72),                # Q&A · 서브질문
+        # p66·71·72(옛 모델 출력 예시 — 깨진 문장·사실 오류 포함)는 드롭, 신규로 대체
+        NewSlide("rag_run", "Q&A 실행과 결과 읽는 법 (신규 1장)"),
+        *refs("3일차", 67, 70),                # 근거 확인 · 서브질문 소개·코드·프롬프트
+        NewSlide("rag_subq", "서브질문 실행 — 한국어 프롬프트 교체와 한계 (신규 1장)"),
         # 평가 — 재작성 (원본 p74-79·81·82 는 옛 챗봇 기획론이라 제외)
         ref("3일차", 73),                      # 간지 → "2. 태스크 정의와 평가"
+        # p80 도 옛 챗봇 과제(제품 카탈로그·청소년 유저) 문맥이라 드롭 (자기검토)
         NewSlide("evalsec_a", "태스크 정의 · BLEU/ROUGE (신규 2장)"),
-        ref("3일차", 80),                      # 수치화 개요 (유일한 겹침 장)
         NewSlide("evalsec_b", "자동 지표의 한계 · LLM-as-judge · 정리 (신규 4장)"),
         # 퓨샷
         ref("2일차", 3),
@@ -138,9 +148,9 @@ PLACEMENT: dict[str, list] = {
         # SFT (+⑬ LoRA) — KoAlpaca 예시 p34·35·41·42 드롭
         ref("2일차", 29),
         NewSlide("lora", "⑬ LoRA 이론 (신규 ~4장 — SFT 학습 대기 중 진행)"),
-        *refs("2일차", 30, 31),
-        NewSlide("sft_data", "어제 만든 877건 — 데이터 흐름 (신규 1장)"),
-        *refs("2일차", 32, 33),
+        ref("2일차", 30),
+        NewSlide("sft_data", "어제 만든 877건 — 데이터 흐름 (신규 1장, 로드 코드 앞으로)"),
+        *refs("2일차", 31, 33),
         *refs("2일차", 36, 37),
         NewSlide("sft_tmpl", "Base 모델에는 대화 형식이 없다 (신규 1장)"),
         *refs("2일차", 38, 40),
