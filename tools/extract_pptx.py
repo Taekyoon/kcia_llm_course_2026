@@ -26,7 +26,9 @@ def _shape_lines(shape) -> list[str]:
         return []
     lines = []
     for para in shape.text_frame.paragraphs:
-        t = _clean("".join(run.text for run in para.runs))
+        # <a:br/> 는 run 이 아니라서 그냥 join 하면 앞뒤 줄이 붙어 버린다.
+        # (실제 슬라이드는 멀쩡한데 추출본만 깨져 보여 오판한 적이 있다 — 2026-08-27)
+        t = _clean(para.text.replace(chr(11), chr(10))).replace(chr(10), chr(10) + "    ")
         if t and not _BOILERPLATE.search(t):
             lines.append(("    " * para.level) + t)
     return lines
