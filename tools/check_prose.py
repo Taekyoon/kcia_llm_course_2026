@@ -22,7 +22,7 @@ import argparse
 import json
 import re
 
-from layout import LAYOUT, WORK
+from layout import LAYOUT, work_path
 
 TARGET_MIN = 3_500          # 이 아래면 설명이 부족하다
 GAP_LIMIT = 5               # 코드 셀이 이만큼 이어지면 공백으로 본다
@@ -64,7 +64,7 @@ def main() -> None:
 
     for day, names in LAYOUT.items():
         for name in names:
-            path = WORK / day / name
+            path = work_path(name)
             if not path.exists():
                 continue
             cells = cells_of(path)

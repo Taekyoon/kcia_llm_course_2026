@@ -58,15 +58,34 @@ LAYOUT: dict[str, list[str]] = {
 DAY_OF: dict[str, str] = {n: d for d, names in LAYOUT.items() for n in names}
 
 
-def work_path(name: str) -> Path:
-    """노트북 이름으로 산출물 경로를 얻는다. 배치에 없으면 중단한다."""
+def disk_name(name: str) -> str:
+    """디스크에 저장되는 파일 이름 — **순번 접두사**가 붙는다.
+
+    일자 안의 실습 순서가 파일 목록에서 바로 보이도록 `0_`, `1_` ... 을 붙인다
+    (Jupyter 파일 목록은 이름순 정렬이라 접두사가 곧 진행 순서가 된다).
+    코드에서는 계속 논리 이름("HPC_SFT실습.ipynb")으로 부르고,
+    접두사는 여기서만 계산한다 — 순서를 바꿔도 LAYOUT 만 고치면 된다.
+    """
     day = DAY_OF.get(name)
     if day is None:
         raise SystemExit(
             f"[중단] LAYOUT 에 없는 노트북입니다: {name!r}\n"
             f"  tools/layout.py 의 LAYOUT 에 먼저 추가하세요."
         )
-    return WORK / day / name
+    return f"{LAYOUT[day].index(name)}_{name}"
+
+
+def logical_name(fname: str) -> str:
+    """디스크 이름에서 순번 접두사를 걷어내 논리 이름으로 되돌린다."""
+    head, sep, tail = fname.partition("_")
+    if sep and head.isdigit():
+        return tail
+    return fname
+
+
+def work_path(name: str) -> Path:
+    """노트북 이름으로 산출물 경로를 얻는다. 배치에 없으면 중단한다."""
+    return WORK / DAY_OF[name] / disk_name(name) if name in DAY_OF else Path(disk_name(name))
 
 
 def find_source(name: str) -> Path:
@@ -112,17 +131,19 @@ def prune_stale(verbose: bool = True) -> list[Path]:
     for p in sorted(WORK.rglob("*.ipynb")):
         if ".ipynb_checkpoints" in p.parts:
             continue
-        want_day = DAY_OF.get(p.name)
-        if want_day is None:
+        base = logical_name(p.name)
+        if base not in DAY_OF:
             # LAYOUT 에 없는 노트북. 사람이 넣어둔 것일 수 있으니 지우지 않고 알린다.
             if verbose:
                 print(f"  [경고] LAYOUT 에 없는 노트북: {p.relative_to(WORK)} (그대로 둠)")
             continue
-        if p.parent.name != want_day:
+        want = work_path(base)
+        if p != want:
+            # 옛 위치이거나, 접두사가 없거나 순번이 바뀐 옛 이름이다.
             p.unlink()
             removed.append(p)
             if verbose:
-                print(f"  [정리] 옛 위치 삭제: {p.relative_to(WORK)} → {want_day}/ 로 이동")
+                print(f"  [정리] 옛 사본 삭제: {p.relative_to(WORK)} → {want.relative_to(WORK)}")
 
     # 비어버린 일자 폴더는 정리한다 (LAYOUT 에 있는 일자는 남긴다)
     for d in sorted(WORK.iterdir()) if WORK.exists() else []:
@@ -139,8 +160,8 @@ if __name__ == "__main__":
     print()
     for day, names in LAYOUT.items():
         print(f"{day}/")
-        for i, n in enumerate(names, 1):
-            exists = "✓" if (WORK / day / n).exists() else "·"
-            print(f"  {exists} {i}. {n}")
+        for n in names:
+            exists = "✓" if work_path(n).exists() else "·"
+            print(f"  {exists} {disk_name(n)}")
     print()
     print(f"총 {sum(len(v) for v in LAYOUT.values())}종")

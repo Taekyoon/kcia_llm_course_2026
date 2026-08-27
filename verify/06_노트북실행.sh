@@ -35,7 +35,7 @@ W=work/notebook
 # (실제로 1·2·3일차를 한 번 재배치했고, 그때 이 배열이 전부 틀렸다.)
 nbpath() {
   local hit
-  hit=$(find "$W" -name "$1.ipynb" -not -path '*/.ipynb_checkpoints/*' | head -n 1)
+  hit=$(find "$W" -name "*$1.ipynb" -not -path '*/.ipynb_checkpoints/*' | head -n 1)
   if [ -z "$hit" ]; then
     echo "★ 노트북을 찾지 못했습니다: $1.ipynb" >&2
     echo "   uv run python tools/layout.py 로 배치를 확인하세요." >&2
