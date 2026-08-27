@@ -134,7 +134,7 @@ md("""
 """)
 
 code("""
-SFT_DIR = "data/test_model"     # 2일차 SFT 실습의 출력 경로
+SFT_DIR = "data/sft_model"     # 이 뒤 SFT 실습의 출력 경로 (완주한 뒤 다시 오면 잡힌다)
 
 predictions = None
 try:

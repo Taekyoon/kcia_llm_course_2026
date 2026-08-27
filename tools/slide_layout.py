@@ -97,7 +97,9 @@ PLACEMENT: dict[str, list] = {
         NewSlide("pretrain_intro", "⑦ Pre-training 등장 배경과 목적 (신규 ~5장)"),
         NewSlide("datacleaning", "⑧ 데이터 처리 이론 (신규 ~10장 — 노트북 마크다운 압축)"),
         ref("1일차", 62),                      # 간지: 미니 GPT 만들기
-        *refs("1일차", 63, 90),                # 미니GPT (28) — PyTorch+HF 로 전면 치환
+        # 원본 p63-90(28장)은 영어 simplebooks + tf.data + keras-nlp 전면이라
+        # 치환이 불가능 — 현행 PyTorch 노트북 기준 신규 18장으로 교체 (E-3)
+        NewSlide("minigpt", "미니GPT — 현행 노트북(PyTorch+HF·한국어 동화·CPT) 기준 신규 ~18장"),
         ref("3일차", 3),                       # 간지: 도메인 최적화 프리트레인 (CPT)
         *refs("3일차", 4, 16),                 # CPT (13)
         ref("3일차", 17),                      # 간지: vLLM 데이터처리 실습 (Amazon)
@@ -107,25 +109,59 @@ PLACEMENT: dict[str, list] = {
     ],
 
     # ── 새 3일차: 4단원 Post-training (7H) — RAG 수미상관 ─────────
+    #    E-3 재구성(2026-08-27): 평가 구간은 노트북과 겹침이 p80 한 장뿐이라
+    #    사실상 재작성(신규 6장), SFT 의 KoAlpaca 예시 4장(p34·35·41·42)은 드롭,
+    #    각 실습 구간에 노트북 핵심(이어받기·Group Relative 등) 신규 장을 삽입.
     "3일차": [
         ref("3일차", 1),                       # 표지
         NewSlide("toc3", "새 목차 — 4단원 구성 (RAG 수미상관)"),
-        ref("3일차", 54),                      # 간지: Llama Index RAG 실습
-        ref("3일차", 55),                      # RAG 개요
-        *refs("3일차", 56, 72, skip=(62,)),    # RAG (16) — p61 중복 정리
-        ref("3일차", 73),                      # 간지: 지속적인 LLM 챗봇 개발 (평가)
-        *refs("3일차", 74, 82),                # 평가: 정의+평가 (9)
-        ref("2일차", 3),                       # 간지: 퓨샷 러닝
-        *refs("2일차", 4, 17),                 # 퓨샷 (14)
-        ref("2일차", 18),                      # 간지: 포스트 트레이닝
-        *refs("2일차", 19, 28),                # 포스트 트레이닝 소개 (10)
-        ref("2일차", 29),                      # 간지: 인스트럭션 모델 학습
+        # RAG
+        ref("3일차", 54),                      # 간지
+        ref("3일차", 55),                      # 개요
+        *refs("3일차", 56, 58),                # 환경·데이터
+        NewSlide("rag_bm25", "BM25 vs 임베딩 · 청킹 (노트북 핵심 개념)"),
+        *refs("3일차", 59, 65, skip=(62,)),    # 리트리버·검색·Q&A (p61 중복 정리)
+        NewSlide("rag_prompt", "프롬프트 교체의 함정 · 검색/생성 실패 진단"),
+        *refs("3일차", 66, 72),                # Q&A · 서브질문
+        # 평가 — 재작성 (원본 p74-79·81·82 는 옛 챗봇 기획론이라 제외)
+        ref("3일차", 73),                      # 간지 → "2. 태스크 정의와 평가"
+        NewSlide("evalsec_a", "태스크 정의 · BLEU/ROUGE (신규 2장)"),
+        ref("3일차", 80),                      # 수치화 개요 (유일한 겹침 장)
+        NewSlide("evalsec_b", "자동 지표의 한계 · LLM-as-judge · 정리 (신규 4장)"),
+        # 퓨샷
+        ref("2일차", 3),
+        *refs("2일차", 4, 17),
+        NewSlide("fewshot_extra", "형식 강제 3단계 · 흔들림 · 결론 비교 · 스키마 추출 (신규 4장)"),
+        # 포스트 트레이닝
+        ref("2일차", 18),
+        *refs("2일차", 19, 28),
+        # SFT (+⑬ LoRA) — KoAlpaca 예시 p34·35·41·42 드롭
+        ref("2일차", 29),
         NewSlide("lora", "⑬ LoRA 이론 (신규 ~4장 — SFT 학습 대기 중 진행)"),
-        *refs("2일차", 30, 51),                # SFT (22)
-        ref("2일차", 52),                      # 간지: 선호기반 모델 학습
-        *refs("2일차", 53, 69),                # DPO (17)
-        ref("2일차", 70),                      # 간지: 리즈닝 모델 학습
-        *refs("2일차", 71, 89, skip=(78,)),    # GRPO (18) — p77 중복 정리
+        *refs("2일차", 30, 31),
+        NewSlide("sft_data", "어제 만든 877건 — 데이터 흐름 (신규 1장)"),
+        *refs("2일차", 32, 33),
+        *refs("2일차", 36, 37),
+        NewSlide("sft_tmpl", "Base 모델에는 대화 형식이 없다 (신규 1장)"),
+        *refs("2일차", 38, 40),
+        NewSlide("sft_len", "토큰 길이 확인 — 조용한 실패 (신규 1장)"),
+        *refs("2일차", 43, 51),
+        # DPO
+        ref("2일차", 52),
+        *refs("2일차", 53, 63),
+        NewSlide("dpo_resume", "SFT 이어받기와 참조 모델 (신규 1장)"),
+        *refs("2일차", 64, 65),
+        NewSlide("dpo_logs", "rewards 로그 읽는 법 · ORPO (신규 1장)"),
+        *refs("2일차", 66, 69),
+        # GRPO
+        ref("2일차", 70),
+        *refs("2일차", 71, 77),                # p78 중복 정리
+        *refs("2일차", 79, 82),
+        NewSlide("grpo_reward", "채점 함수의 품질이 곧 학습의 품질 (신규 1장)"),
+        *refs("2일차", 83, 84),
+        NewSlide("grpo_group", "Group Relative — num_generations 의 뜻 (신규 1장)"),
+        *refs("2일차", 85, 89),
+        # 마무리
         NewSlide("method_guide", "방법 선택 가이드 (신규 ~7장 — review/07 원고)"),
         NewSlide("ragcheck", "RAG 개선 확인 — 수미상관 마무리 (신규 ~2장)"),
         ref("3일차", 83),                      # 감사합니다
