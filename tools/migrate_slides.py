@@ -59,8 +59,52 @@ class GlobalSlideRule:
     expect: int
 
 
-# 개별 장 규칙 — 코드 슬라이드의 현행 노트북 동기화는 Phase E 후반에 채운다.
-RULES: list[SlideRule] = []
+# 코드 슬라이드의 현행 노트북 동기화 (E-2, 2026-08-27 XML 수확 기준).
+# 문단(=줄) 단위로만 치환된다 — 여러 줄 교체는 줄별 규칙으로 나눈다.
+RULES: list[SlideRule] = [
+    SlideRule('2일차', 8, '!pip install openai vllm datasets',
+              "%pip install -q -U 'openai<3' datasets",
+              '현행 노트북과 동기화 (E-2). 슬라이드 코드가 그대로는 안 돈다'),
+    SlideRule('2일차', 8, '!nohup python -m vllm.entrypoints.openai.api_server --model LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct &',
+              '# 서버는 별도 venv 터미널에서: nohup vllm serve Qwen/Qwen3-4B-Instruct-2507 --port 8000 --gpu-memory-utilization 0.80 --max-model-len 16384 &',
+              '현행 노트북과 동기화 (E-2). 슬라이드 코드가 그대로는 안 돈다 — api_server deprecated + torch 하드핀 venv 분리'),
+    SlideRule('2일차', 9, '실행된 모델은 Colab 실습 환경 안에 모델 서비스로 실행중에 있습니다.',
+              '실행된 모델은 실습 환경(VESSL) 안에 모델 서비스로 실행 중입니다.',
+              '실습 환경이 Colab → VESSL 로 바뀌었다 (E-2)'),
+    SlideRule('2일차', 11, 'dataset = load_dataset("e9t/nsmc", trust_remote_code=True)',
+              'dataset = load_dataset("e9t/nsmc", revision="refs/convert/parquet")',
+              'datasets 5.x 스크립트 로딩 제거 — parquet 리비전 (CLAUDE.md §9 실측)'),
+    SlideRule('2일차', 31, 'raw_datasets = load_dataset("beomi/KoAlpaca-v1.1a")',
+              'raw_datasets = load_dataset("json", data_files="data/amazon_ko_sft.mine.jsonl")',
+              'KoAlpaca 는 CC BY-NC. 현행 SFT 는 2일차에 직접 만든 데이터로 학습한다'),
+    SlideRule('2일차', 31, '학습 데이터는 KoAlpaca 데이터셋을 활용 합니다.',
+              '학습 데이터는 2일차에 직접 만든 상품 요약 데이터셋입니다.',
+              '현행 노트북과 동기화 (E-2). 슬라이드 코드가 그대로는 안 돈다'),
+    SlideRule('2일차', 75, '"Qwen/Qwen2.5-0.5B-Instruct"',
+              '"Qwen/Qwen3-0.6B-Base"',
+              'GRPO 만 구세대 모델이었다 — Qwen3 계열 통일 (CLAUDE.md §10)'),
+    SlideRule('3일차', 23, '! nohup python -m vllm.entrypoints.openai.api_server --model LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct &',
+              '# 서버는 별도 venv 터미널에서: nohup vllm serve Qwen/Qwen3-4B-Instruct-2507 --port 8000 &',
+              '현행 노트북과 동기화 (E-2). 슬라이드 코드가 그대로는 안 돈다'),
+    SlideRule('3일차', 57, '여기서는 LG 엑사원 모델을 활용합니다.',
+              '여기서는 vLLM 서버의 Qwen3-4B 모델을 활용합니다.',
+              '현행 노트북과 동기화 (E-2). 슬라이드 코드가 그대로는 안 돈다'),
+    SlideRule('3일차', 57, 'from llama_index.llms.vllm import Vllm',
+              'from llama_index.llms.openai_like import OpenAILike',
+              '현행 노트북과 동기화 (E-2). 슬라이드 코드가 그대로는 안 돈다 — 현행 RAG 는 vLLM 서버에 HTTP 로 붙는다'),
+    SlideRule('3일차', 57, 'Settings.llm = Vllm(',
+              'Settings.llm = OpenAILike(',
+              '현행 노트북과 동기화 (E-2). 슬라이드 코드가 그대로는 안 돈다'),
+    SlideRule('3일차', 57, "dtype='float16',",
+              "model='Qwen/Qwen3-4B-Instruct-2507', api_base='http://localhost:8000/v1',",
+              '현행 노트북과 동기화 (E-2). 슬라이드 코드가 그대로는 안 돈다'),
+    SlideRule('3일차', 57, "model='LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct'",
+              "api_key='EMPTY', is_chat_model=True,",
+              '현행 노트북과 동기화 (E-2). 슬라이드 코드가 그대로는 안 돈다'),
+    SlideRule('1일차', 38, 'dataset = load_dataset("kor_ner")',
+              'dataset = load_dataset("klue/klue", "ner")',
+              'kor_ner 스크립트형 제거 — klue/klue ner (컬럼명 동일, CLAUDE.md §9 실측)'),
+]
 
 # 전역 규칙. expect 는 재사용 257장의 XML 결합 텍스트 실측값 (2026-08-27).
 # 섹션 규칙은 이름으로 구분되어 서로의 출력을 다시 잡지 않는다 (충돌 분석 완료).
@@ -102,7 +146,7 @@ GLOBAL_RULES: list[GlobalSlideRule] = [
     GlobalSlideRule('5. 리즈닝 모델학습', '7. 리즈닝 모델학습',
                     '재배치로 섹션 순서가 바뀌었다 — 새 덱 기준 번호·명칭 재부여 (expect 는 2026-08-27 XML 실측)', 18),
     GlobalSlideRule('Vllm', 'vLLM',
-                    '용어 표준 (CLAUDE.md §7)', 15),
+                    '용어 표준 (CLAUDE.md §7). p57 줄 교체가 먼저 2곳을 없애 13', 13),
     GlobalSlideRule('evaluation_strategy', 'eval_strategy',
                     '라이브러리 API 변경 (CLAUDE.md §9 실측) — transformers 5 에서 제거, 슬라이드 코드가 깨진다 (C-3)', 2),
     GlobalSlideRule('trainer.tokenizer', 'trainer.processing_class',
@@ -113,6 +157,45 @@ GLOBAL_RULES: list[GlobalSlideRule] = [
                     '용어 표준 (CLAUDE.md §7)', 1),
     GlobalSlideRule('높히', '높이',
                     '용어 표준 (CLAUDE.md §7)', 1),
+    GlobalSlideRule('LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct',
+                    'Qwen/Qwen3-4B-Instruct-2507',
+                    'EXAONE NC 라이선스 → Qwen3 (CLAUDE.md §10). 서빙 줄 교체(RULES)로 3곳이 먼저 사라져 7', 7),
+    GlobalSlideRule('"beomi/gemma-ko-2b"',
+                    '"jhu-clsp/mmBERT-base"',
+                    '분류·NER 모델 교체 — 인코더 전환 (CLAUDE.md §10)', 3),
+    GlobalSlideRule('client.beta.chat.completions.parse(',
+                    'client.chat.completions.create(',
+                    'openai SDK 2.x — .beta 네임스페이스 이동 (노트북과 동일 처리)', 6),
+    GlobalSlideRule('extra_body={"guided_json": feature_type_schema},',
+                    'response_format={"type": "json_schema", "json_schema": {"name": "feature_type_list", "schema": feature_type_schema}},',
+                    'vLLM 0.12 에서 guided_json 정식 제거 — 조용히 무시되는 함정 (CLAUDE.md §9)', 1),
+    GlobalSlideRule('extra_body={"guided_json": subsectoin_schema},',
+                    'response_format={"type": "json_schema", "json_schema": {"name": "subsection_list", "schema": subsectoin_schema}},',
+                    'guided_json 제거 (위와 동일)', 1),
+    GlobalSlideRule('extra_body={"guided_json": extracted_feature_schema},',
+                    'response_format={"type": "json_schema", "json_schema": {"name": "extracted_feature_list", "schema": extracted_feature_schema}},',
+                    'guided_json 제거 (위와 동일)', 1),
+    GlobalSlideRule('extra_body={"guided_json": consumer_category_schema},',
+                    'response_format={"type": "json_schema", "json_schema": {"name": "consumer_category_list", "schema": consumer_category_schema}},',
+                    'guided_json 제거 (위와 동일)', 1),
+    GlobalSlideRule('extra_body={"guided_json": summary_schema},',
+                    'response_format={"type": "json_schema", "json_schema": {"name": "summary", "schema": summary_schema}},',
+                    'guided_json 제거 (위와 동일)', 2),
+    GlobalSlideRule('extra_body={"guided_choice": ["긍정", "부정"]},',
+                    'extra_body={"structured_outputs": {"choice": ["긍정", "부정"]}},',
+                    'guided_choice 제거 — structured_outputs (CLAUDE.md §9 실측)', 2),
+    GlobalSlideRule('공유드린 Github 실습자료를 Colab에서 불러옵니다.',
+                    '실습 노트북(work/notebook)을 VESSL 워크스페이스에서 엽니다.',
+                    '실습 환경 Colab → VESSL (E-2)', 3),
+    GlobalSlideRule('%pip install -q bitsandbytes trl peft math_verify',
+                    '%pip install -q math_verify   # 나머지 학습 스택은 사전 설치됨',
+                    'setup_vessl.sh 가 스택을 설치한다 — 긴 줄 먼저 (접두사 충돌)', 1),
+    GlobalSlideRule('%pip install -q bitsandbytes trl peft',
+                    '# torch 는 constraints 로 고정되어 재설치되지 않습니다',
+                    'setup_vessl.sh 가 스택을 설치한다', 2),
+    GlobalSlideRule('%pip install -q transformers[torch] datasets',
+                    '# 학습 스택은 setup_vessl.sh 가 설치해 둡니다 (transformers·datasets·trl·peft)',
+                    'setup_vessl.sh 가 스택을 설치한다', 3),
 ]
 
 # ---------------------------------------------------------------------------
@@ -246,6 +329,17 @@ def build(dst_dir: Path | None = None, verbose: bool = True) -> dict[str, Path]:
     for r in RULES:
         rules_by_page.setdefault((r.deck, r.page), []).append(r)
     global_hits = {id(g): 0 for g in GLOBAL_RULES}
+
+    # PowerPoint 가 산출물을 열어 두면 저장이 막힌다 — 시작 전에 전부 확인한다
+    for day in PLACEMENT:
+        target = (dst_dir) / out_path(day).name
+        if target.exists():
+            try:
+                target.rename(target)   # Windows: 열려 있으면 여기서 실패한다
+            except PermissionError:
+                raise SystemExit(
+                    f"[중단] {target.name} 이 PowerPoint 에 열려 있습니다. "
+                    f"파일을 닫고 다시 실행하세요.")
 
     outputs = {}
     for day, items in PLACEMENT.items():
