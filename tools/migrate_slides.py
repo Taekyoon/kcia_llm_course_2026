@@ -130,34 +130,31 @@ def _stub(key: str, memo: str, n: int) -> list[dict]:
 
 
 NEW_SLIDES: dict[str, list[dict]] = {
-    "toc1": [{
-        "header": "목 차",
-        "title": "1일차",
-        "bullets": [(0, "1. AI 소프트웨어 개발 개론"),
-                    (0, "2. 트랜스포머와 ChatGPT"),
-                    (1, "머신러닝에서 딥러닝, 그리고 어텐션"),
-                    (1, "트랜스포머 모델에서 BERT까지 · GPT와 ChatGPT"),
-                    (1, "실습: 감성 분류 · 개체명 인식(NER)")],
-    }],
-    "toc2": [{
-        "header": "목 차",
-        "title": "2일차 — LLM Pre-training",
-        "bullets": [(0, "Pre-training 등장 배경과 목적"),
-                    (0, "오픈소스를 활용한 Pre-training 데이터 처리"),
-                    (0, "미니 GPT 학습 실습"),
-                    (0, "Continuous Pre-training과 한국어 GPT"),
-                    (0, "데이터 생성 파이프라인과 프롬프트 자동 최적화")],
-    }],
-    "toc3": [{
-        "header": "목 차",
-        "title": "3일차 — LLM Post-training",
-        "bullets": [(0, "RAG 시스템 만들기 (심화 선행)"),
-                    (0, "태스크 정의와 평가"),
-                    (0, "Few-shot 프롬프트 엔지니어링"),
-                    (0, "모델 파인튜닝과 LoRA"),
-                    (0, "Preference Learning과 GRPO"),
-                    (0, "마무리: 방법 선택 가이드 · RAG 개선 확인")],
-    }],
+    # 목차 3장은 각 덱의 원본 목차(p2)를 도너로 쓴다 — 목차 서식을 그대로 물려받는다
+    # (본문형 도너로 찍었더니 정리가 안 돼 보인다는 사용자 지적, 2026-08-27).
+    "toc1": [{"donor": ("1일차", 2), "toc": [
+        '1.\tAI 소프트웨어 개발 개론',
+        '2.\t트랜스포머와 ChatGPT',
+        '3.\t자연어처리 머신러닝 소개와 실습',
+    ]}],
+    "toc2": [{"donor": ("2일차", 2), "toc": [
+        '1.\tPre-training 등장 배경과 목적',
+        '2.\tPre-training 데이터 처리',
+        '3.\t미니 GPT 만들기',
+        '4.\t도메인 최적화 프리트레이닝(CPT)',
+        '5.\tvLLM을 활용한 데이터 생성 실습',
+        '6.\t프롬프트 자동 최적화',
+    ]}],
+    "toc3": [{"donor": ("3일차", 2), "toc": [
+        '1.\tLlama Index를 활용한 RAG 실습',
+        '2.\t태스크 정의와 평가',
+        '3.\t퓨샷 러닝',
+        '4.\t포스트 트레이닝',
+        '5.\t인스트럭션 모델 학습',
+        '6.\t선호기반 모델 학습',
+        '7.\t리즈닝 모델 학습',
+        '8.\t마무리 — 방법 선택 가이드와 RAG 개선 확인',
+    ]}],
     "ml2dl": _stub("ml2dl", "④ ML→DL 발전사", 4),
     "pretrain_intro": _stub("pretrain_intro", "⑦ Pre-training 등장 배경과 목적", 5),
     "datacleaning": _stub("datacleaning", "⑧ Pre-training 데이터 처리", 10),
@@ -196,6 +193,16 @@ def _set_text(tf, lines: list[tuple[int, str]], base_size: Pt | None) -> None:
 
 def fill_new_slide(part, spec: dict) -> None:
     slide = Slide(part._element, part)
+
+    if "toc" in spec:
+        # 목차 도너: "목 차" 제목은 그대로 두고, 문단이 가장 많은 본문 상자만 교체
+        boxes = [sh for sh in slide.shapes
+                 if sh.has_text_frame and BOILER not in sh.text_frame.text
+                 and sh.text_frame.text.strip()]
+        body = max(boxes, key=lambda b: len(b.text_frame.paragraphs))
+        _set_text(body.text_frame, [(0, line) for line in spec["toc"]], None)
+        return
+
     boxes = [sh for sh in slide.shapes
              if sh.has_text_frame and BOILER not in sh.text_frame.text]
     boxes = [b for b in boxes if b.text_frame.text.strip()]
@@ -265,8 +272,8 @@ def build(dst_dir: Path | None = None, verbose: bool = True) -> dict[str, Path]:
                 n_ref += 1
             else:
                 for spec in NEW_SLIDES[it.key]:
-                    part = pc.clone_slide(srcs[DONOR[0]], zips[DONOR[0]], DONOR[1],
-                                          shell, media)
+                    dd, dp = spec.get("donor", DONOR)
+                    part = pc.clone_slide(srcs[dd], zips[dd], dp, shell, media)
                     fill_new_slide(part, spec)
                     pc.append_slide_part(shell, part, sid)
                     sid += 1
