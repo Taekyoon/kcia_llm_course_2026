@@ -17,7 +17,7 @@
 
 의존 산출물 (같은 3일차 폴더의 상대경로):
 - ./bm25_retriever  ← 0_HPC_BM25_RAG실습 이 저장
-- data/sft_model    ← 2_HPC_SFT실습 이 저장 (어댑터 + 챗 템플릿 포함 토크나이저)
+- data/sft_model    ← 3_HPC_SFT실습 이 저장 (어댑터 + 챗 템플릿 포함 토크나이저)
 """
 
 from __future__ import annotations
@@ -241,7 +241,7 @@ if (sft_dir / "adapter_config.json").exists():
     sft_model.eval()
 else:
     print("★" * 30)
-    print("★ data/sft_model 이 없습니다 — SFT 실습(2_HPC_SFT실습)을 먼저 완주하세요.")
+    print("★ data/sft_model 이 없습니다 — SFT 실습(3_HPC_SFT실습)을 먼저 완주하세요.")
     print("★ 아래 비교 셀은 Base 출력만 보여주게 됩니다.")
     print("★" * 30)
 """)
@@ -324,6 +324,8 @@ md("""
 
 실무로 돌아가면 순서는 늘 같습니다 —
 **프롬프트로 되는지 먼저, 안 되면 그때 학습. 모르는 것은 검색으로.**
+그리고 무엇을 하든 **바꾸기 전에 잴 수단부터** 갖춥니다. 오늘 아침 평가 실습을
+학습보다 먼저 한 이유이고, 방금의 전후 비교가 성립한 이유입니다.
 그 판단을 스스로 내릴 수 있게 된 것이 이 3일의 목표였습니다.
 """)
 
