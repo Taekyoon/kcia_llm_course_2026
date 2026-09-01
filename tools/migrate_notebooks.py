@@ -534,7 +534,7 @@ else:
 
 
 TRUNC_OLD = "        return completion.choices[0].message.content\n    except Exception as e:\n        print(e)\n        return 'error'"
-TRUNC_NEW = '        # 길이 상한에 걸리면 JSON 이 중간에서 끊긴다. 그런데 API 는 **성공으로**\n        # 응답하므로 아래 except 에 걸리지 않고, 몇 셀 뒤에서 json.loads 가\n        # "Unterminated string" 으로 죽는다. 원인에서 먼 곳에서 터지는 것이 가장 나쁘다.\n        if completion.choices[0].finish_reason == "length":\n            print("[잘림] 출력이 max_tokens 에 걸렸습니다. "\n                  "스키마의 max_length 나 max_tokens 를 늘려야 합니다.")\n            return \'error\'\n        return completion.choices[0].message.content\n    except Exception as e:\n        print(e)\n        return \'error\''
+TRUNC_NEW = '        # 길이 상한에 걸리면 JSON 이 중간에서 끊긴다. 그런데 API 는 **성공으로**\n        # 응답하므로 아래 except 에 걸리지 않고, 몇 셀 뒤에서 json.loads 가\n        # "Unterminated string" 으로 죽는다. 원인에서 먼 곳에서 드러나는 것이 가장 나쁘다.\n        if completion.choices[0].finish_reason == "length":\n            print("[잘림] 출력이 max_tokens 에 걸렸습니다. "\n                  "스키마의 max_length 나 max_tokens 를 늘려야 합니다.")\n            return \'error\'\n        return completion.choices[0].message.content\n    except Exception as e:\n        print(e)\n        return \'error\''
 
 
 # 중복 제거 — 실제 개행이 든 상수로 둔다 (백슬래시 이스케이프 회피, CLAUDE.md §12)
@@ -1973,11 +1973,11 @@ pydantic 모델  →  model_json_schema()  →  response_format
 
 ### 길이 상한을 반드시 겁니다
 
-`Field(max_length=...)` 가 붙어 있는 것을 보세요. **이게 없으면 실제로 터집니다.**
+`Field(max_length=...)` 가 붙어 있는 것을 보세요. **이게 없으면 실제로 깨집니다.**
 
 문자열 필드에 상한이 없으면 문법상 무한히 길어질 수 있습니다. 모델이 늘어지다가
 `max_tokens` 에 걸려 JSON 이 **중간에서 잘리고**, 몇 셀 뒤에서
-`Unterminated string` 으로 죽습니다. 원인에서 가장 먼 곳에서 터지는 셈입니다.
+`Unterminated string` 으로 죽습니다. 원인에서 가장 먼 곳에서 드러나는 셈입니다.
 
 > 이 실습을 한국어로 바꾸면서 실제로 겪은 일입니다. 영어일 때는 우연히 넘어갔는데
 > 출력이 길어지면서 드러났습니다. **"영어에서 됐으니 한국어도 된다" 가 성립하지 않습니다.**
@@ -1986,7 +1986,7 @@ pydantic 모델  →  model_json_schema()  →  response_format
 
 각 함수 끝에 `finish_reason == "length"` 검사가 있습니다.
 **잘린 응답은 에러가 아니라 정상 응답**이라 `try/except` 에 걸리지 않습니다.
-여기서 잡지 않으면 원인에서 멀리 떨어진 곳에서 터집니다.
+여기서 잡지 않으면 원인에서 멀리 떨어진 곳에서 에러가 납니다.
 """.strip()
 
 AMZ_CHAIN = """
@@ -2819,7 +2819,7 @@ SFT·DPO 와 같은 설정입니다. 생성할 때 템플릿이 한 군데 달�
              "\n"
              "class ConsumerCategoryList(BaseModel):\n"
              "    consuber_categories: List[ConsumerCategory]",
-             "# ★ 여기가 실제로 터진 곳이다. user_category 에 상한이 없어서\n"
+             "# ★ 여기가 실제로 깨진 곳이다. user_category 에 상한이 없어서\n"
              "#   제약 디코딩이 그 문자열을 쓰다가 max_tokens 에 걸렸다.\n"
              "class ConsumerCategory(BaseModel):\n"
              "    user_category: str = Field(max_length=40)\n"

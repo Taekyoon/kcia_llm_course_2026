@@ -79,7 +79,13 @@ PLACEMENT: dict[str, list] = {
         *refs("1일차", 4, 20),                 # 1단원 본문 (17)
         ref("1일차", 48),                      # 간지 재활용 → "2. 트랜스포머와 ChatGPT" 로 치환
         NewSlide("ml2dl", "④ ML→DL 발전사 (신규 ~4장. 착수 전 p49-53 그림 중복 확인)"),
-        *refs("1일차", 49, 55),                # 트랜스포머 이론 (7)
+        *refs("1일차", 49, 50),                # Transformer 소개·어텐션 활용 (2)
+        # self-attention 을 점수 막대로 먼저 소개(쉬운 예) → p51 이 행렬로 일반화한다.
+        # 어텐션 vs self-attention 구분도 여기서 짚는다 (2026-09-01)
+        NewSlide("selfattn_ex", "Self-Attention 점수 예시 (신규 1장 — p51 앞)"),
+        *refs("1일차", 51, 55),                # Self-Attention·구조·의의 (5)
+        # p58(KorQuAD)은 원본 내용을 그대로 두고 **같은 장에** 실제 데이터 예제를
+        # 덧붙인다 — migrate_slides.EXTRAS 참조 (2026-09-01 사용자 지시)
         *refs("1일차", 56, 58),                # BERT (3)
         *refs("1일차", 59, 61),                # GPT·ChatGPT (3)
         ref("1일차", 21),                      # 간지: 자연어처리 머신러닝 소개 (⑤ 실습 도입)

@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pptx import Presentation
 from pptx.oxml.ns import qn
 
-from migrate_slides import GLOBAL_RULES, RULES, build, expected_counts
+from migrate_slides import EXTRAS, GLOBAL_RULES, RULES, build, expected_counts
 from slide_layout import DECKS, PLACEMENT, SlideRef, out_path
 
 BASELINE_SIZES = {"1일차": 15450466, "2일차": 4297796, "3일차": 4588720}
@@ -35,6 +35,15 @@ R_ATTRS = [qn("r:embed"), qn("r:link"), qn("r:id")]
 
 def slide_texts(slide) -> list[str]:
     return sorted(sh.text_frame.text for sh in slide.shapes if sh.has_text_frame)
+
+
+def slide_table_cells(slide) -> list[str]:
+    out = []
+    for sh in slide.shapes:
+        if sh.has_table:
+            for row in sh.table.rows:
+                out += [c.text for c in row.cells]
+    return out
 
 
 def apply_rules_str(deck: str, page: int, texts: list[str]) -> list[str]:
@@ -91,7 +100,34 @@ def main() -> None:
                 got = slide_texts(prs.slides[idx])
                 want = apply_rules_str(it.deck, it.page,
                                        slide_texts(srcs[it.deck].slides[it.page - 1]))
-                if got != want:
+                extras = [e for e in EXTRAS if (e.deck, e.page) == (it.deck, it.page)]
+                if extras:
+                    # 원본에 도형을 덧붙인 장 — 원본 텍스트는 그대로 남아 있어야 하고
+                    # (부분집합), 덧붙인 불릿·표 문구가 출력에 있어야 한다.
+                    # 공백·줄바꿈은 무시한다 — build_fn 이 빈 문단을 지워 문단 구조가
+                    # 바뀔 수 있다(코드 클리핑 방지 등). 글자 내용만 본다.
+                    blob = " ".join(got) + " " + " ".join(slide_table_cells(prs.slides[idx]))
+                    nospace = "".join(blob.split())
+                    # build_fn 은 문단을 중간에 끼워 넣을 수 있어 원본이 더 이상 연속
+                    # 부분문자열이 아니다 — 그 경우 이 검사는 건너뛰고 expect_texts 로 확인한다.
+                    restructures = any(e.build_fn is not None for e in extras)
+                    if not restructures:
+                        for w in want:
+                            if "".join(w.split()) not in nospace:
+                                fails.append(f"{day} 새 p{idx+1} ← {it.deck} p{it.page}: "
+                                             f"원본 텍스트 사라짐 {w!r}")
+                    for e in extras:
+                        for _lv, tx in e.add_bullets:
+                            if tx not in blob:
+                                fails.append(f"{day} 새 p{idx+1}: 덧붙인 불릿 누락 {tx!r}")
+                        for row in (e.table or {}).get("rows", []):
+                            for cell in row:
+                                if cell and cell not in blob:
+                                    fails.append(f"{day} 새 p{idx+1}: 표 셀 누락 {cell!r}")
+                        for tx in e.expect_texts:
+                            if tx not in blob:
+                                fails.append(f"{day} 새 p{idx+1}: 덧붙인 문구 누락 {tx!r}")
+                elif got != want:
                     diff = [(a, b) for a, b in zip(want, got) if a != b][:2]
                     fails.append(f"{day} 새 p{idx+1} ← {it.deck} p{it.page}: 텍스트 불일치 {diff}")
                 idx += 1

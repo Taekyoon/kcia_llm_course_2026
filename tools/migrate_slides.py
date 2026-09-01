@@ -22,13 +22,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from lxml import etree
 from pptx import Presentation
+from pptx.dml.color import RGBColor
+from pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
+from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.oxml.ns import qn
 from pptx.slide import Slide
-from pptx.util import Pt
+from pptx.util import Cm, Pt
 
 import pptxcommon as pc
-from slide_layout import DECKS, DECK_PAGES, PLACEMENT, WORK_PPT, NewSlide, SlideRef, out_path
+from slide_layout import ROOT, DECKS, DECK_PAGES, PLACEMENT, WORK_PPT, NewSlide, SlideRef, out_path
 
 # 신규 슬라이드의 도너 — 그림 없는 텍스트 전용 장 (2026-08-27 도형 실사로 선정)
 DONOR = ("1일차", 19)
@@ -48,6 +52,30 @@ class SlideRule:
     new: str
     why: str
     count: int = 1
+
+
+@dataclass(frozen=True)
+class SlideExtra:
+    """원본 한 장에 **도형을 더한다**. `SlideRule` 은 기존 텍스트 치환만 하므로
+    "원본은 그대로 두고 내용을 덧붙인다" 를 표현할 수 없다 (2026-09-01).
+
+    - `add_bullets`  가장 큰 텍스트 상자 끝에 (level, text) 를 덧붙인다
+    - `body_h_cm`    그 상자의 높이 (덧붙인 만큼 늘려 준다)
+    - `move_picture` 가장 큰 그림을 (left, top, w, h) cm 로 옮긴다 — 자리를 비우려고
+    - `table`        `_add_table` 과 같은 사양. `left_cm` 을 따로 줄 수 있다
+    """
+    deck: str
+    page: int
+    why: str
+    add_bullets: tuple = ()
+    body_h_cm: float | None = None
+    move_picture: tuple | None = None
+    table: dict | None = None
+    # 위 선언형으로 안 되는 자유 배치는 빌더 함수로 — slide 를 받아 도형을 그린다.
+    # (frozen dataclass 라 함수도 값으로 담긴다)
+    build_fn: object | None = None
+    # 라운드트립 검증이 "이 문구들이 출력에 있어야 한다" 로 확인할 목록
+    expect_texts: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -194,6 +222,9 @@ RULES: list[SlideRule] = [
     SlideRule('3일차', 56, '%pip install vllm',
               '# vLLM 서버는 별도 venv 에서 — 노트북 환경에는 설치하지 않습니다',
               '슬라이드↔현행 노트북 대조(E-3)에서 확인된 불일치 — torch 하드핀 충돌 (venv 분리)', 1),
+    SlideRule('3일차', 56, '%pip install datasets',
+              '%pip install datasets PyStemmer matplotlib',
+              '노트북 대조(2026-09-01) — p9 의 import Stemmer(PyStemmer) 와 display_source_node(matplotlib) 에 필요한데 설치 목록에 빠져 있었다', 1),
     SlideRule('3일차', 58, "dataset = load_dataset('heegyu/kowikitext', trust_remote_code=True, split='train[:1000]’)",
               "dataset = load_dataset('wikimedia/wikipedia', '20231101.ko', split='train[:1000]')",
               '슬라이드↔현행 노트북 대조(E-3)에서 확인된 불일치 — kowikitext 는 datasets 5.x 에서 로딩 불가 (실측)', 1),
@@ -216,7 +247,7 @@ RULES: list[SlideRule] = [
               'from transformers import AutoModelForSequenceClassification, TrainingArguments, Trainer',
               '분류 실습인데 TokenClassification 을 import (C-4)', 1),
     SlideRule('1일차', 31, '학습 데이터는 “nsmc” 이라고 하는 허깅페이스 허브 내 데이터를 활용합니다.',
-              '학습 데이터는 e9t/nsmc 라는 허깅페이스 허브 내 데이터를 활용합니다.',
+              '학습 데이터는 e9t/nsmc라는 허깅페이스 허브 내 데이터를 활용합니다.',
               '자기검토(3덱 전문 통독, 2026-08-27)에서 확인', 1),
     SlideRule('1일차', 31, 'dataset = load_dataset("nsmc")',
               'dataset = load_dataset("e9t/nsmc", revision="refs/convert/parquet")',
@@ -275,13 +306,143 @@ RULES: list[SlideRule] = [
     SlideRule('1일차', 28, 'import evaluate',
               'import evaluate, numpy as np',
               '자체 리뷰 2회차(1·2일차 통독, 2026-08-27) — 이 import 로 시작한 분류 실습이 뒤에서 np.argmax 를 쓴다 (노트북엔 있다)', 1),
+    # ── 1일차 2섹션(트랜스포머·BERT·GPT) 통독, 2026-09-01 ──────────────
+    SlideRule('1일차', 50, '방식을 활 용하여', '방식을 활용하여',
+              '1일차 통독 (2026-09-01)' + ' — 단어 가운데 공백 (원본 줄바꿈 흔적)'),
+    SlideRule('1일차', 51, '단어들 간 의 관계가', '단어들 간의 관계가',
+              '1일차 통독 (2026-09-01)' + ' — 단어 가운데 공백'),
+    SlideRule('1일차', 53, 'Self-Attention 연산을 각각 N번 하는 과정',
+              '입력 표현을 N개로 나눠 각각 Self-Attention을 구하고 다시 이어붙이는 과정',
+              '1일차 통독 (2026-09-01)' + ' — 옆 그림은 Linear 로 쪼개 Concat 하는 구조인데 본문이 "각각 N번" 이라, '
+                     '연산량이 N배 든다는 오해를 준다'),
+    SlideRule('1일차', 53, 'N번 하는 것을 multi-head 수로 설정',
+              '나누는 개수 N을 multi-head 수로 설정 — 나눠 하므로 전체 연산량은 크게 늘지 않음',
+              '1일차 통독 (2026-09-01)' + ' — 위 규칙과 한 벌'),
+    SlideRule('1일차', 53, '여러개로 보고자', '여러 개로 보고자', '1일차 통독 (2026-09-01)' + ' — 띄어쓰기'),
+    SlideRule('1일차', 54, '관계를 봐야하기 때문에', '관계를 봐야 하기 때문에', '1일차 통독 (2026-09-01)' + ' — 띄어쓰기'),
+    SlideRule('1일차', 54, 'Position Embedding을 이용하여',
+              'Positional Encoding을 이용하여',
+              '1일차 통독 (2026-09-01)' + ' — 옆 그림(원 논문 Figure 1)은 Positional Encoding 이다. '
+                     '트랜스포머 원 논문은 학습하지 않는 사인·코사인 encoding 이고, '
+                     '학습되는 position embedding 은 BERT·GPT 방식이라 개념이 갈린다'),
+    SlideRule('1일차', 55, '3.\t트렌스포머와 GPT – GPT에 대해서',
+              '2.\t트랜스포머와 ChatGPT – Transformer 소개',
+              '1일차 통독 (2026-09-01)' + ' — 이 장 내용은 "Transformer 의의" 인데 헤더가 GPT 였다'),
+    SlideRule('1일차', 56, '3.\t트렌스포머와 GPT – GPT에 대해서',
+              '2.\t트랜스포머와 ChatGPT – BERT에 대해서',
+              '1일차 통독 (2026-09-01)' + ' — 원본은 p55~p61 일곱 장이 모두 "GPT에 대해서" 인데 '
+                     '실제로는 p55 Transformer 의의 · p56~58 BERT · p59~61 GPT 다. '
+                     '바로 앞 장이 "Encoder는 BERT, Decoder는 GPT" 로 분기한 직후라 더 헷갈린다'),
+    SlideRule('1일차', 57, '3.\t트렌스포머와 GPT – GPT에 대해서',
+              '2.\t트랜스포머와 ChatGPT – BERT에 대해서', '1일차 통독 (2026-09-01)' + ' — 위와 한 벌'),
+    SlideRule('1일차', 58, '3.\t트렌스포머와 GPT – GPT에 대해서',
+              '2.\t트랜스포머와 ChatGPT – BERT에 대해서', '1일차 통독 (2026-09-01)' + ' — 위와 한 벌'),
+    SlideRule('1일차', 58, 'KorQuad (Reading Comprehension Task)',
+              'KorQuAD (Reading Comprehension Task)',
+              '1일차 통독 (2026-09-01)' + ' — 정식 표기. 옆 그림도 KorQuAD 다'),
+    SlideRule('1일차', 58, '대부분의 모델들이 Bert 기반 모델을',
+              '대부분의 모델들이 BERT 기반 모델을', '1일차 통독 (2026-09-01)' + ' — 표기'),
+    SlideRule('1일차', 56, 'Transformers Encoder 모델 활용한',
+              'Transformer Encoder 모델 활용한',
+              '1일차 통독 (2026-09-01)' + ' — 아키텍처는 단수 Transformer. 복수 Transformers 는 허깅페이스 '
+                     '라이브러리 이름이고 같은 덱 실습 장에서 그 뜻으로 쓰인다'),
+    SlideRule('1일차', 56, 'NSP (Next Sentence Prediction) 으로',
+              'NSP (Next Sentence Prediction)으로', '1일차 통독 (2026-09-01)' + ' — 조사 붙여쓰기'),
+    SlideRule('1일차', 59, 'Transformers Decoder 모델 활용한',
+              'Transformer Decoder 모델 활용한', '1일차 통독 (2026-09-01)' + ' — 위 Encoder 와 한 벌'),
+    SlideRule('1일차', 59, '초기 GPT-1은 Bert와 같이 Pre-training이후 finetune 방식으로 소개',
+              '초기 GPT-1은 BERT와 같이 Pre-training 이후 fine-tuning 방식으로 소개',
+              '1일차 통독 (2026-09-01)' + ' — Bert 표기 · "이후" 는 조사가 아니라 명사라 띄어야 한다 · '
+                     'finetune 은 앞 장들의 fine-tuning 과 표기가 갈린다'),
+    SlideRule('1일차', 60, '크기가 200M 수준으로 굉장히 작아',
+              '크기가 최대 1.5B 수준으로 작아',
+              '1일차 통독 (2026-09-01)' + ' — GPT-2 는 117M(small)~1.5B(XL) 이고 논문 대표 모델이 1.5B 다. '
+                     '아래 그림이 GPT-3 175B 를 보여주는데 200M 이면 875배 도약으로 읽혀 '
+                     '실제(약 100배)와 어긋난다'),
+    SlideRule('1일차', 60, '태스크를 학습없이 해결할', '태스크를 학습 없이 해결할',
+              '1일차 통독 (2026-09-01)' + ' — 띄어쓰기'),
+    SlideRule('1일차', 61, 'Reinforcement Learning Human Feedback)',
+              'Reinforcement Learning from Human Feedback, RLHF)',
+              '1일차 통독 (2026-09-01)' + ' — 정확한 명칭은 from Human Feedback. 그리고 3일차 내내 쓰는 '
+                     'RLHF 약어가 이 덱 어디에도 도입되지 않아 여기서 준다'),
+
+    # ── 1일차 3섹션(실습) 통독 — 노트북과 어긋난 곳 ────────────────────
+    SlideRule('1일차', 46, 'eval_dataset=tokenized_dataset["test"],',
+              'eval_dataset=tokenized_dataset["validation"],',
+              '1일차 통독 (2026-09-01)' + ' — KLUE 에는 test 스플릿이 없다. 같은 덱의 NER 데이터 장이 이미 '
+                     '"평가는 validation 으로 합니다" 라고 말해 놓고 여기서 test 를 쓴다. '
+                     '노트북은 validation 을 쓴다 (실행 검증 완료)'),
+    SlideRule('1일차', 36,
+              'classifier = pipeline("sentiment-analysis", model="./nsmc_classifier/checkpoint-938")',
+              'best = trainer.state.best_model_checkpoint or training_args.output_dir\n'
+              'classifier = pipeline("sentiment-analysis", model=best, tokenizer=tokenizer)',
+              '1일차 통독 (2026-09-01)' + ' — 노트북에 "checkpoint-938 을 하드코딩하면 배치·에폭·데이터 크기가 '
+                     '조금만 달라져도 깨진다" 는 주석이 있는데 슬라이드가 그대로 하고 있었다'),
+    SlideRule('1일차', 47, '# Replace this with your own checkpoint',
+              '# 하드코딩하면 재현되지 않는다 — 학습 결과에서 받아온다',
+              '1일차 통독 (2026-09-01)' + ' — 노트북과 동기화'),
+    SlideRule('1일차', 47, 'model_checkpoint = "./ner_seq_classifier/checkpoint-183"',
+              'model_checkpoint = trainer.state.best_model_checkpoint or training_args.output_dir',
+              '1일차 통독 (2026-09-01)' + ' — 위와 한 벌. 노트북은 best_model_checkpoint 를 쓴다'),
+    SlideRule('1일차', 34, '이 때 라벨 정보에 대한', '이때 라벨 정보에 대한', '1일차 통독 (2026-09-01)' + ' — 띄어쓰기'),
+    SlideRule('1일차', 33, '“accuracy”이라는 함수를', '“accuracy”라는 함수를',
+              '노트북 설명과 용어·조사 일치'),
+    SlideRule('1일차', 34, 'AutoModelSequenceClassification 클래스를',
+              'AutoModelForSequenceClassification 클래스를',
+              '현재 노트북의 실제 클래스명과 일치'),
+    SlideRule('1일차', 35, 'load_best_model_at_end=True',
+              'load_best_model_at_end=True,\nreport_to="tensorboard",',
+              'Classification 노트북 셀 25와 완전 일치'),
+    SlideRule('1일차', 35, '모델 학습을 위한 학습 설정값들을 TrainingArguments에 선언해줍니다.',
+              'TrainingArguments로 학습 설정을 선언하고 Trainer.train()을 실행합니다.',
+              '학습 코드 클리핑 방지를 위한 설명 압축'),
+    SlideRule('1일차', 35, '학습 설정값들을 선언했다면, Trainer 라는 객체를 생성하고 train이라는 함수를 실행합니다.', '',
+              '위 설명에 통합'),
+    SlideRule('1일차', 37, 'Gemma-2-ko GPT 모델을 활용하여 모델 학습을 실습하고자 합니다.',
+              'mmBERT 인코더 모델을 활용하여 사전학습+파인튜닝 방식 그대로 실습합니다.\n'
+              'from transformers import AutoTokenizer\n'
+              'from transformers import AutoModelForTokenClassification, TrainingArguments, Trainer\n'
+              'tokenizer = AutoTokenizer.from_pretrained("jhu-clsp/mmBERT-base")',
+              'NER 노트북 셀 3~4의 핵심 초기화를 실행 순서대로 반영'),
+    SlideRule('1일차', 39, 'ner_feature = dataset["train"].features["ner_tags"]',
+              'ner_feature = dataset["train"].features["ner_tags"]\n'
+              'label_names = ner_feature.feature.names\nlabel_names',
+              'NER 노트1 셀 12~13과 일치 — label_names를 사용하기 전에 정의'),
+    SlideRule('1일차', 45, '이 때 라벨 정보에 대한', '이때 라벨 정보에 대한', '1일차 통독 (2026-09-01)' + ' — 띄어쓰기'),
+    SlideRule('1일차', 45, 'AutoModelTokenClassification 클래스를',
+              'AutoModelForTokenClassification 클래스를',
+              '현재 노트1의 실제 클래스명과 일치'),
+    SlideRule('1일차', 45, 'label_names = ner_feature.feature.names', '',
+              'label_names는 노트1 순서대로 p39에서 먼저 정의함'),
+    SlideRule('1일차', 46, 'load_best_model_at_end=True',
+              'load_best_model_at_end=True,\nreport_to="tensorboard",',
+              'NER 노트1 셀 25와 완전 일치'),
+    SlideRule('1일차', 46, '모델 학습을 위한 학습 설정값들을 TrainingArguments에 선언해줍니다.',
+              'TrainingArguments로 학습 설정을 선언하고 Trainer.train()을 실행합니다.',
+              '학습 코드 클리핑 방지를 위한 설명 압축'),
+    SlideRule('1일차', 46, '학습 설정값들을 선언했다면, Trainer 라는 객체를 생성하고 train이라는 함수를 실행합니다.', '',
+              '위 설명에 통합'),
+    SlideRule('1일차', 27, '의도 분류 모델 대신 감정 분류 모델로 대신하여 실습합니다.',
+              '의도 분류 대신 감정 분류로 실습합니다.', '중복 표현 정리'),
+    SlideRule('1일차', 24, '의도 분류 예시', '개체명 추출 예시',
+              '개체명 추출 장의 잘못된 예시 제목'),
+    SlideRule('1일차', 40, '띄어쓰기 단위로 토큰화 하여 태깅을',
+              '띄어쓰기 단위로 토큰화하여 태깅을', '1일차 통독 (2026-09-01)' + ' — 띄어쓰기'),
+    SlideRule('1일차', 42, 'load_dataset 으로 받은 dataset 객체는 map 이라는 함수를',
+              'load_dataset으로 받은 dataset 객체는 map이라는 함수를', '1일차 통독 (2026-09-01)' + ' — 조사 붙여쓰기'),
+    SlideRule('1일차', 24, '필요한 정보를 추출 하기 위한 태스크',
+              '필요한 정보를 추출하기 위한 태스크', '1일차 통독 (2026-09-01)' + ' — 띄어쓰기'),
+    SlideRule('1일차', 26, '질의 텍스트로 부터 의도 분류',
+              '질의 텍스트로부터 의도 분류', '1일차 통독 (2026-09-01)' + ' — 띄어쓰기'),
+    SlideRule('1일차', 32, '맞춰주도록 패딩작업을 수행합니다.',
+              '맞춰주도록 패딩 작업을 수행합니다.', '1일차 통독 (2026-09-01)' + ' — 띄어쓰기'),
 ]
 
 # 전역 규칙. expect 는 재사용 257장의 XML 결합 텍스트 실측값 (2026-08-27).
 # 섹션 규칙은 이름으로 구분되어 서로의 출력을 다시 잡지 않는다 (충돌 분석 완료).
 GLOBAL_RULES: list[GlobalSlideRule] = [
     GlobalSlideRule('3.\t트렌스포머와 GPT', '2.\t트랜스포머와 ChatGPT',
-                    '재배치로 섹션 순서가 바뀌었다 — 새 덱 기준 번호·명칭 재부여 (expect 는 2026-08-27 XML 실측)', 14),
+                    '재배치로 섹션 순서가 바뀌었다 — 새 덱 기준 번호·명칭 재부여. 통독(2026-09-01)에서 p55~58 헤더 4장을 내용에 맞게 페이지 규칙(Transformer 소개·BERT에 대해서)으로 바꿔 전역에서 빠진다 → 14에서 10', 10),
     GlobalSlideRule('2.\t자연어처리 머신러닝 소개', '3.\t자연어처리 머신러닝 소개',
                     '재배치로 섹션 순서가 바뀌었다 — 새 덱 기준 번호·명칭 재부여 (expect 는 2026-08-27 XML 실측)', 1),
     GlobalSlideRule('2. 자연어처리 머신러닝 소개', '3. 자연어처리 머신러닝 소개',
@@ -334,7 +495,7 @@ GLOBAL_RULES: list[GlobalSlideRule] = [
                     '자기검토(3덱 전문 통독, 2026-08-27)에서 확인 — 표기 통일 (노트북과 동일)', 8),
     GlobalSlideRule('Bert 모델',
                     'BERT 모델',
-                    '자기검토(3덱 전문 통독, 2026-08-27)에서 확인 — 표기', 4),
+                    '자기검토(3덱 전문 통독, 2026-08-27)에서 확인 — 표기 (p56·57·58 제목 + p57 본문)', 4),
     GlobalSlideRule('Bert를',
                     'BERT를',
                     '자기검토(3덱 전문 통독, 2026-08-27)에서 확인', 1),
@@ -343,7 +504,7 @@ GLOBAL_RULES: list[GlobalSlideRule] = [
                     '자기검토(3덱 전문 통독, 2026-08-27)에서 확인', 1),
     GlobalSlideRule('Gemma-2-ko GPT 모델을 활용하여 모델 학습을 실습하고자 합니다.',
                     'mmBERT 인코더 모델을 활용하여 사전학습+파인튜닝 방식 그대로 실습합니다.',
-                    '분류·NER 본문 서술이 여전히 Gemma 였다 (C-1 잔여)', 2),
+                    '분류·NER 본문 서술이 여전히 Gemma 였다 (C-1 잔여). NER p37은 페이지 규칙에서 초기화 코드까지 함께 교체', 1),
     GlobalSlideRule('tokenizer=tokenizer,',
                     'processing_class=tokenizer,',
                     'transformers 5 — Trainer(tokenizer=) 제거 (CLAUDE.md §9)', 2),
@@ -386,6 +547,439 @@ GLOBAL_RULES: list[GlobalSlideRule] = [
     GlobalSlideRule('%pip install -q transformers[torch] datasets',
                     '# 학습 스택은 setup_vessl.sh 가 설치해 둡니다 (transformers·datasets·trl·peft)',
                     'setup_vessl.sh 가 스택을 설치한다', 3),
+    GlobalSlideRule('Trainer 라는', 'Trainer라는',
+                    '조사 붙여쓰기 — 1일차 학습 설명 두 곳은 페이지 규칙에서 압축하여 전역 치환 대상이 사라졌다', 0),
+    GlobalSlideRule('pipeline 이라는', 'pipeline이라는',
+                    '조사 붙여쓰기 (위와 동일)', 2),
+    GlobalSlideRule('RNN모델에서', 'RNN 모델에서',
+                    '통독(2026-09-01) — 붙어 있어야 할 곳이 아니라 띄어야 할 곳', 1),
+]
+
+# 원본 장에 도형을 덧붙이는 규칙 (SlideExtra). 원본 내용은 그대로 두고 더한다.
+def _kq_run(p, text, *, size, bold=False, color=None, hl=None):
+    """문단에 run 하나를 더한다. hl 은 형광(highlight) 색 hex."""
+    r = p.add_run()
+    r.text = text
+    r.font.name = TABLE_FONT
+    r.font.size = Pt(size)
+    r.font.bold = bold
+    if color is not None:
+        r.font.color.rgb = RGBColor.from_string(color)
+    rPr = r._r.get_or_add_rPr()
+    rPr.set(qn("a:lang"), "ko-KR")
+    ea = etree.SubElement(rPr, qn("a:ea"))
+    ea.set("typeface", TABLE_FONT)
+    if hl is not None:
+        h = etree.Element(qn("a:highlight"))
+        clr = etree.SubElement(h, qn("a:srgbClr"))
+        clr.set("val", hl)
+        # highlight 는 rPr 안에서 fill 계열 뒤, latin 앞 순서를 지켜야 한다 — 맨 앞에 둔다
+        rPr.insert(0, h)
+    return r
+
+
+def _kq_card(slide, l, t, w, h, *, fill, line=None, radius=0.08):
+    box = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Cm(l), Cm(t), Cm(w), Cm(h))
+    box.adjustments[0] = radius
+    box.fill.solid()
+    box.fill.fore_color.rgb = RGBColor.from_string(fill)
+    if line is None:
+        box.line.fill.background()
+    else:
+        box.line.color.rgb = RGBColor.from_string(line)
+        box.line.width = Pt(1)
+    box.shadow.inherit = False
+    return box
+
+
+def _code_line_after(box, anchor_substr, new_text):
+    """코드 상자에서 anchor_substr 이 든 문단 바로 뒤에 new_text 한 줄을 넣는다.
+    코드 슬라이드는 줄마다 별도 <a:p> 라 문단을 복제해 삽입하면 서식이 유지된다."""
+    tb = box.text_frame._txBody
+    for pe in tb.findall(qn("a:p")):
+        txt = "".join(t.text or "" for t in pe.findall(".//" + qn("a:t")))
+        if anchor_substr in txt:
+            c = copy.deepcopy(pe)
+            for br in c.findall(".//" + qn("a:br")):
+                br.getparent().remove(br)
+            runs = c.findall(".//" + qn("a:t"))
+            runs[0].text = new_text
+            for r in runs[1:]:
+                r.text = ""
+            pe.addnext(c)
+            return
+    raise SystemExit(f"[중단] 코드 앵커 못 찾음: {anchor_substr!r}")
+
+
+def add_subq_question_gen(slide):
+    """p69(SubQuestionQueryEngine) — 노트북과 맞춘다.
+
+    SubQuestionQueryEngine 의 기본 질문 생성기는 OpenAI 전용이라, 로컬 vLLM 환경에서는
+    question_gen 을 직접 넘겨야 한다(노트북 주석). 슬라이드 코드엔 이 줄과 import 가
+    빠져 있어 그대로는 깨진다 → import 1줄 + 인자 1줄을 노트북과 동일하게 삽입한다.
+    """
+    box = next((sh for sh in slide.shapes
+                if sh.has_text_frame
+                and "SubQuestionQueryEngine.from_defaults" in sh.text_frame.text), None)
+    if box is None:
+        raise SystemExit("[중단] p69 SubQuestionQueryEngine 코드 상자를 못 찾음")
+    _code_line_after(box, "from llama_index.core.tools import",
+                     "from llama_index.core.question_gen import LLMQuestionGenerator")
+    ind = chr(160) + " " + chr(160) + " "
+    _code_line_after(box, "query_engine_tools=query_engine_tools,",
+                     ind + "question_gen=LLMQuestionGenerator.from_defaults(llm=Settings.llm),")
+
+
+def build_korquad_example(slide):
+    """p58(KorQuAD)에 예제를 세련되게 얹는다 — 리더보드 그림은 뺀다.
+
+    핵심 메시지: "정답은 새로 쓰는 것이 아니라 지문 속 '구간'". 그래서 지문에서
+    정답 세 곳을 형광으로 칠하고, 아래 질문 배지의 색을 같게 맞춘다 (눈으로 연결).
+    원본 텍스트(상단 4줄)는 건드리지 않는다 (2026-09-01 사용자 지시).
+    """
+    # ① 낡은 KorQuAD 2.0 리더보드 캡처 제거
+    pics = [sh for sh in slide.shapes if sh.shape_type == MSO_SHAPE_TYPE.PICTURE
+            and (sh.width or 0) > Cm(8)]
+    for pic in pics:
+        pic._element.getparent().remove(pic._element)
+
+    Y = 15.2  # 예제 영역 시작 (원본 본문 4줄 아래)
+    C1, C2, C3 = "FFE08A", "F7C6D9", "BCE5C6"   # 정답 3색: 노랑·분홍·초록
+
+    # ② 소제목
+    cap = slide.shapes.add_textbox(Cm(10.6), Cm(Y), Cm(38), Cm(1.0))
+    p = cap.text_frame.paragraphs[0]
+    _kq_run(p, "예제 ", size=17, bold=True, color="1F4E79")
+    _kq_run(p, "— BERT가 시작·끝 위치를 골라 ", size=15, color="595959")
+    _kq_run(p, "지문 속 '구간(span)'", size=15, bold=True, color="1F4E79")
+    _kq_run(p, "을 찾습니다  (KorQuAD 1.0 · 문서 \"파우스트_서곡\")", size=15, color="595959")
+
+    # ③ 지문 카드 — 정답 세 곳을 형광으로
+    card = _kq_card(slide, 10.6, Y + 1.2, 38.6, 4.6, fill="F4F8FC", line="C9DCEC")
+    tf = card.text_frame
+    tf.word_wrap = True
+    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    for m in (0, 1, 2, 3):
+        tf.margin_left = tf.margin_right = Cm(0.5)
+        tf.margin_top = tf.margin_bottom = Cm(0.3)
+    p = tf.paragraphs[0]
+    p.line_spacing = 1.3
+    seg = [
+        ("1839년 바그너는 괴테의 파우스트를 읽고 그 내용에 끌려 하나의 ", None),
+        ("교향곡", C1),
+        ("을 쓰려는 뜻을 갖는다. 파리에서 ", None),
+        ("베토벤의 교향곡 9번", C3),
+        ("을 듣고 깊은 감명을 받았고, 이 곡의 ", None),
+        ("1악장", C2),
+        ("을 쓴 뒤에 중단했다.", None),
+    ]
+    for txt, hl in seg:
+        # 도형 안 run 의 기본 글자색이 흰색이라 연한 카드에 묻힌다 — 검정 명시 (2026-09-01)
+        _kq_run(p, txt, size=15, bold=hl is not None, color="1A1A1A", hl=hl)
+
+    # ④ 질문 배지 세 줄 — 색이 지문 형광과 매칭된다
+    rows = [
+        (C1, "교향곡", "무엇을 쓰고자 했는가?", "54"),
+        (C3, "베토벤의 교향곡 9번", "어떤 곡의 영향을 받았는가?", "194"),
+        (C2, "1악장", "어디까지 쓴 뒤에 중단했는가?", "421"),
+    ]
+    qy = Y + 6.2
+    for i, (color, ans, q, pos) in enumerate(rows):
+        y = qy + i * 1.75
+        badge = _kq_card(slide, 10.6, y, 12.5, 1.4, fill=color, radius=0.5)
+        bt = badge.text_frame
+        bt.vertical_anchor = MSO_ANCHOR.MIDDLE
+        bp = bt.paragraphs[0]
+        bp.alignment = PP_ALIGN.CENTER
+        _kq_run(bp, ans, size=15, bold=True, color="1A1A1A")
+        qbox = slide.shapes.add_textbox(Cm(23.6), Cm(y), Cm(25.6), Cm(1.4))
+        qt = qbox.text_frame
+        qt.vertical_anchor = MSO_ANCHOR.MIDDLE
+        qp = qt.paragraphs[0]
+        _kq_run(qp, "Q. ", size=14, bold=True, color="8C8C8C")
+        _kq_run(qp, q, size=15, color="1A1A1A")
+        _kq_run(qp, f"    answer_start = {pos}", size=12, color="A6A6A6")
+
+
+def compact_training_code_slide(slide):
+    """학습 코드 상자의 빈 문단을 제거한다.
+
+    설명 두 줄을 한 줄로 합친 뒤 남은 빈 불릿이 코드를 아래로 밀어
+    history = trainer.train()을 클리핑했다. 코드·글자 크기는 그대로 두고 빈 문단만 뺀다.
+    """
+    code_box = None
+    for shape in slide.shapes:
+        if not shape.has_text_frame:
+            continue
+        tx_body = shape.text_frame._txBody
+        for p in list(tx_body.findall(qn("a:p"))):
+            text = "".join((t.text or "") for t in p.findall(".//" + qn("a:t")))
+            if not text.strip() and len(tx_body.findall(qn("a:p"))) > 1:
+                tx_body.remove(p)
+        if "training_args = TrainingArguments" in shape.text_frame.text:
+            code_box = shape
+    if code_box is None:
+        raise SystemExit("[중단] 학습 코드 상자를 못 찾았습니다")
+    code_box.top -= Cm(1.2)
+
+
+# ── p24·p25 도해: 같은 문장을 RNN(직렬) vs 어텐션(전연결) 으로 대비 ────────
+_TOKENS = ["나", "는", "사과", "를", "먹었다"]
+_TOK_W, _TOK_H, _GAP = 5.4, 1.5, 1.0
+_ROW_W = len(_TOKENS) * _TOK_W + (len(_TOKENS) - 1) * _GAP   # 31.0cm
+_ROW_L = 10.6 + (38.6 - _ROW_W) / 2                          # 본문 폭 중앙 정렬
+
+
+def _tok_centers(top_cm):
+    xs = [_ROW_L + i * (_TOK_W + _GAP) + _TOK_W / 2 for i in range(len(_TOKENS))]
+    return xs, top_cm + _TOK_H / 2
+
+
+def _draw_tokens(slide, top_cm, *, highlight=None, dim=False):
+    for i, tok in enumerate(_TOKENS):
+        l = _ROW_L + i * (_TOK_W + _GAP)
+        hot = highlight is not None and i == highlight
+        box = _kq_card(slide, l, top_cm, _TOK_W, _TOK_H,
+                       fill=("D6E8FF" if hot else ("F0F0F0" if dim else "EAF2FB")),
+                       line=("6BA6E8" if hot else "D0D8E0"))
+        box.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
+        p = box.text_frame.paragraphs[0]
+        p.alignment = PP_ALIGN.CENTER
+        _kq_run(p, tok, size=15, bold=hot, color=("134A8E" if hot else "3A3A3A"))
+
+
+def _line(slide, x1, y1, x2, y2, *, color, width_pt, dashed=False, arrow=True):
+    conn = slide.shapes.add_connector(2, Cm(x1), Cm(y1), Cm(x2), Cm(y2))  # 2 = straight
+    conn.line.color.rgb = RGBColor.from_string(color)
+    conn.line.width = Pt(width_pt)
+    ln = conn.line._get_or_add_ln()
+    if dashed:
+        d = etree.SubElement(ln, qn("a:prstDash")); d.set("val", "dash")
+    if arrow:
+        tail = etree.SubElement(ln, qn("a:tailEnd"))
+        tail.set("type", "triangle"); tail.set("w", "med"); tail.set("len", "med")
+    return conn
+
+
+def draw_rnn_limit(slide):
+    """RNN — 한 칸씩 순서대로 전달, 멀면 흐려진다 (p25 어텐션의 동기)."""
+    top = 18.0
+    xs, cy = _tok_centers(top)
+    # 위 캡션: 병렬화 한계
+    cap = slide.shapes.add_textbox(Cm(_ROW_L), Cm(top - 2.4), Cm(_ROW_W), Cm(1.0))
+    cp = cap.text_frame.paragraphs[0]
+    cp.alignment = PP_ALIGN.CENTER
+    _kq_run(cp, "앞 단어부터 한 칸씩 전달 — 앞 계산이 끝나야 다음이 시작된다 ", size=12, color="595959")
+    _kq_run(cp, "(병렬화가 어렵다)", size=12, bold=True, color="595959")
+    # 멀리 떨어진 관계 (연한 점선 아치) — 첫 단어에서 마지막 단어로
+    _line(slide, xs[0], top - 0.7, xs[-1], top - 0.7,
+          color="C4B0D8", width_pt=1.5, dashed=True, arrow=True)
+    lab = slide.shapes.add_textbox(Cm(_ROW_L), Cm(top - 1.5), Cm(_ROW_W), Cm(0.8))
+    lp = lab.text_frame.paragraphs[0]
+    lp.alignment = PP_ALIGN.CENTER
+    _kq_run(lp, "멀리 떨어진 단어일수록 관계가 흐려진다", size=11, color="8A7AA6")
+    # 인접 전달 화살표
+    for i in range(len(xs) - 1):
+        _line(slide, xs[i] + _TOK_W / 2, cy, xs[i + 1] - _TOK_W / 2, cy,
+              color="5B6B7B", width_pt=1.8)
+    _draw_tokens(slide, top)
+    cap2 = slide.shapes.add_textbox(Cm(_ROW_L), Cm(top + _TOK_H + 0.4), Cm(_ROW_W), Cm(1.0))
+    c2 = cap2.text_frame.paragraphs[0]
+    c2.alignment = PP_ALIGN.CENTER
+    _kq_run(c2, "문장이 길어질수록 두 한계가 함께 조여 온다 — 그래서 ", size=12, color="595959")
+    _kq_run(c2, "어텐션", size=12, bold=True, color="1F4E79")
+    _kq_run(c2, "이 나온다", size=12, color="595959")
+
+
+APPLE_ASSET = ROOT / "work" / "assets" / "p25_apple.png"
+
+
+def add_apple_image(slide):
+    """p25(어텐션 개념)에 사과 장면 이미지를 넣는다 — 있으면.
+
+    브라우저에서 자동 회수가 막혀(2026-09-01) 강사가 work/assets/p25_apple.png 로
+    저장한다. 파일이 없으면 조용히 건너뛴다 — 빌드는 깨지지 않는다.
+    """
+    if not APPLE_ASSET.exists():
+        print(f"  [안내] {APPLE_ASSET.name} 없음 — p25 사과 이미지 건너뜀")
+        return
+    slide.shapes.add_picture(str(APPLE_ASSET), Cm(20.0), Cm(15.6), Cm(19.6), Cm(10.9))
+
+
+def draw_attention(slide):
+    """어텐션 — 질의 단어 '먹었다'가 각 단어를 보는 정도를 막대로.
+
+    교차선 대신 막대로 그린다 — 서로 겹치지 않고, 앞서 보여준 위젯과도 같은 형태다.
+    """
+    top = 18.9
+    xs, _ = _tok_centers(top)
+    q = 4  # 질의 = '먹었다'
+    weights = [0.30, 0.05, 0.45, 0.05, 0.15]
+
+    cap = slide.shapes.add_textbox(Cm(_ROW_L), Cm(top - 1.5), Cm(_ROW_W), Cm(1.0))
+    cp = cap.text_frame.paragraphs[0]
+    cp.alignment = PP_ALIGN.CENTER
+    _kq_run(cp, "질의 단어 ", size=12, color="595959")
+    _kq_run(cp, "'먹었다'", size=12, bold=True, color="1F4E79")
+    _kq_run(cp, "가 각 단어를 보는 정도 (어텐션 점수)", size=12, color="595959")
+
+    _draw_tokens(slide, top, highlight=q)
+
+    y0 = top + _TOK_H + 0.35        # 막대 시작(위)
+    scale = 7.1                     # 최대 0.45 → 3.2cm
+    for i, w in enumerate(weights):
+        h = max(w * scale, 0.12)
+        strong = w >= 0.25
+        bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE,
+                                     Cm(xs[i] - 0.8), Cm(y0), Cm(1.6), Cm(h))
+        bar.fill.solid()
+        bar.fill.fore_color.rgb = RGBColor.from_string("378ADD" if strong else "C8D4E0")
+        bar.line.fill.background()
+        bar.shadow.inherit = False
+        num = slide.shapes.add_textbox(Cm(xs[i] - 1.0), Cm(y0 + h + 0.05), Cm(2.0), Cm(0.7))
+        npar = num.text_frame.paragraphs[0]
+        npar.alignment = PP_ALIGN.CENTER
+        _kq_run(npar, f"{w:.2f}", size=11,
+                bold=strong, color=("1F4E79" if strong else "8A8A8A"))
+
+    cap2 = slide.shapes.add_textbox(Cm(_ROW_L), Cm(y0 + 3.2 + 0.7), Cm(_ROW_W), Cm(1.0))
+    c2 = cap2.text_frame.paragraphs[0]
+    c2.alignment = PP_ALIGN.CENTER
+    _kq_run(c2, "주어 '나'와 목적어 '사과'에 높은 점수 — 순서가 아니라 의미로, 한 번에 본다",
+            size=12, color="595959")
+
+
+def _box(slide, l, t, w, h, text, *, fill, line=None, size=13, bold=False,
+         tcolor="1A1A1A", radius=0.08):
+    b = _kq_card(slide, l, t, w, h, fill=fill, line=line, radius=radius)
+    b.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
+    b.text_frame.word_wrap = True
+    p = b.text_frame.paragraphs[0]
+    p.alignment = PP_ALIGN.CENTER
+    for i, seg in enumerate(text.split("\n")):
+        para = p if i == 0 else b.text_frame.add_paragraph()
+        para.alignment = PP_ALIGN.CENTER
+        _kq_run(para, seg, size=size, bold=bold, color=tcolor)
+    return b
+
+
+def _label(slide, l, t, w, text, *, size=12, color="595959", align=PP_ALIGN.CENTER, bold=False):
+    tb = slide.shapes.add_textbox(Cm(l), Cm(t), Cm(w), Cm(0.9))
+    p = tb.text_frame.paragraphs[0]
+    p.alignment = align
+    _kq_run(p, text, size=size, bold=bold, color=color)
+
+
+def draw_lora(slide):
+    """LoRA — 얼린 W 옆에 저랭크 A·B 만 학습 (출력 = W·x + B·A·x)."""
+    cy = 20.2
+    _box(slide, 11.0, cy - 0.9, 3.4, 1.8, "입력\nx", fill="EDEDED", line="C9C9C9", size=13)
+    # 위 경로: 얼린 W
+    _box(slide, 18.0, cy - 3.0, 9.0, 2.2, "W  (원래 가중치)\n❄ 얼림 · 수억 개",
+         fill="ECECEC", line="B8B8B8", size=13, tcolor="6B6B6B")
+    # 아래 경로: 저랭크 A·B (학습)
+    _box(slide, 18.0, cy + 0.9, 4.1, 2.0, "A\n(d×r)", fill="D6E8FF", line="378ADD", size=12, tcolor="134A8E")
+    _box(slide, 22.9, cy + 0.9, 4.1, 2.0, "B\n(r×d)", fill="D6E8FF", line="378ADD", size=12, tcolor="134A8E")
+    # 합류 ⊕ → 출력
+    _box(slide, 30.5, cy - 1.0, 1.9, 2.0, "＋", fill="FFFFFF", line="9AA6B2", size=20, radius=0.5)
+    _box(slide, 34.5, cy - 0.9, 3.6, 1.8, "출력", fill="EAF2FB", line="AEBECE", size=13)
+    # 연결선
+    _line(slide, 14.4, cy, 18.0, cy - 1.9, color="9AA6B2", width_pt=1.4)          # x→W
+    _line(slide, 14.4, cy, 18.0, cy + 1.9, color="378ADD", width_pt=1.4)          # x→A
+    _line(slide, 22.1, cy + 1.9, 22.9, cy + 1.9, color="378ADD", width_pt=1.4)    # A→B
+    _line(slide, 27.0, cy - 1.9, 30.5, cy, color="9AA6B2", width_pt=1.4)          # W→＋
+    _line(slide, 27.0, cy + 1.9, 30.5, cy, color="378ADD", width_pt=1.4)          # B→＋
+    _line(slide, 32.4, cy, 34.5, cy, color="5B6B7B", width_pt=1.6)                # ＋→출력
+    _label(slide, 18.0, cy - 3.9, 9.0, "학습 안 함", size=11, color="9A9A9A")
+    _label(slide, 18.0, cy + 3.0, 9.0, "여기만 학습 — 저랭크 보정 (SFT trainable 2.99%)",
+           size=12, color="134A8E", bold=True)
+    _label(slide, 11.0, cy - 4.6, 27.0, "출력 = W·x  +  B·A·x", size=15, color="1F4E79",
+           align=PP_ALIGN.CENTER, bold=True)
+
+
+def draw_grpo_group(slide):
+    """GRPO — 한 문제에 답 N개, 그룹 평균 대비 상대 평가로 확률을 올리고 내린다."""
+    ans = [("답 1", "0.9", True), ("답 2", "0.2", False),
+           ("답 3", "0.7", True), ("답 4", "0.0", False)]
+    ys = [17.7, 20.0, 22.3, 24.6]                 # 본문 아래에서 시작 (겹침 방지)
+    q_cy = (ys[0] + ys[-1] + 1.9) / 2             # 답 박스들의 세로 중앙
+    _box(slide, 11.0, q_cy - 1.0, 4.6, 2.0, "문제\n(프롬프트)", fill="EDEDED", line="C9C9C9", size=13)
+    for (name, rw, up), y in zip(ans, ys):
+        col = ("D9F0DF", "3E9E5A") if up else ("FAD9E0", "C65B77")
+        _box(slide, 19.5, y, 9.5, 1.9, f"{name}    보상 {rw}    {'▲ 확률↑' if up else '▼ 확률↓'}",
+             fill=col[0], line=col[1], size=12, tcolor="1A1A1A")
+        _line(slide, 15.6, q_cy, 19.5, y + 0.95, color="9AA6B2", width_pt=1.2)
+    # 그룹 평균 기준선
+    _line(slide, 30.2, ys[0], 30.2, ys[-1] + 1.9, color="8A8A8A", width_pt=1.2, dashed=True, arrow=False)
+    _label(slide, 30.4, q_cy - 0.5, 8.0, "그룹 평균 (기준선)", size=12, color="6B6B6B", align=PP_ALIGN.LEFT)
+    _label(slide, 11.0, ys[-1] + 2.1, 27.0,
+           "num_generations=4 — 그룹 안에서 상대 평가라 별도 기준선 모델이 필요 없다",
+           size=12, color="595959")
+
+
+def draw_rag_pipeline(slide):
+    """RAG — 질문 → BM25 검색 → top-k 문서 → LLM → 답 (전체 뼈대)."""
+    cy = 21.5
+    steps = [
+        (11.0, 6.2, "질문", "EDEDED", "C9C9C9", "1A1A1A"),
+        (18.4, 6.6, "BM25 검색", "FBEED0", "E0B84E", "7A5A10"),
+        (26.2, 6.6, "top-3 문서", "EAF2FB", "AEBECE", "1A1A1A"),
+        (34.0, 5.0, "LLM\n답 생성", "D6E8FF", "378ADD", "134A8E"),
+    ]
+    xs_right = []
+    for l, w, txt, fill, line, tc in steps:
+        _box(slide, l, cy - 1.1, w, 2.2, txt, fill=fill, line=line, size=13, tcolor=tc)
+        xs_right.append(l + w)
+    _line(slide, xs_right[0], cy, steps[1][0], cy, color="5B6B7B", width_pt=1.6)
+    _line(slide, xs_right[1], cy, steps[2][0], cy, color="5B6B7B", width_pt=1.6)
+    _line(slide, xs_right[2], cy, steps[3][0], cy, color="5B6B7B", width_pt=1.6)
+    _box(slide, 39.6, cy - 0.9, 3.4, 1.8, "답", fill="EAF2FB", line="AEBECE", size=13)
+    _line(slide, xs_right[3], cy, 39.6, cy, color="5B6B7B", width_pt=1.6)
+    # 위키 인덱스가 BM25 를 받쳐 준다
+    _box(slide, 17.6, cy + 2.6, 8.2, 1.7, "위키 인덱스 (아침에 저장)", fill="F4F4F4", line="D0D0D0",
+         size=11, tcolor="6B6B6B")
+    _line(slide, 21.7, cy + 2.6, 21.7, cy + 1.1, color="B0B0B0", width_pt=1.2)
+    _label(slide, 11.0, cy - 3.0, 32.0,
+           "지식은 검색으로 넣는다 — 모델을 바꾸지 않고 문서를 바꿔 답을 바꾼다",
+           size=12, color="1F4E79", bold=True)
+
+
+EXTRAS: list[SlideExtra] = [
+    SlideExtra(
+        deck="3일차", page=55,
+        why="RAG 개요에 파이프라인 도해 — 질문→BM25→문서→LLM→답 (2026-09-01)",
+        build_fn=draw_rag_pipeline,
+        expect_texts=("BM25 검색", "top-3 문서", "지식은 검색으로 넣는다"),
+    ),
+    SlideExtra(
+        deck="3일차", page=69,
+        why="SubQuestionQueryEngine 기본 질문생성기는 OpenAI 전용 — 로컬 vLLM 용 question_gen 을 노트북과 맞춰 추가 (import 포함)",
+        build_fn=add_subq_question_gen,
+        expect_texts=("from llama_index.core.question_gen import LLMQuestionGenerator",
+                      "question_gen=LLMQuestionGenerator.from_defaults(llm=Settings.llm),"),
+    ),
+    SlideExtra(
+        deck="1일차", page=35,
+        why="Classification 학습 코드를 노트북과 맞추면서 클리핑 방지",
+        build_fn=compact_training_code_slide,
+        expect_texts=('report_to="tensorboard"', 'history = trainer.train()'),
+    ),
+    SlideExtra(
+        deck="1일차", page=46,
+        why="NER 학습 코드를 노트북과 맞추면서 클리핑 방지",
+        build_fn=compact_training_code_slide,
+        expect_texts=('report_to="tensorboard"', 'history = trainer.train()'),
+    ),
+    # p58(KorQuAD)은 리더보드 캡처로만 태스크를 설명한다 — "정답이 지문 속 구간"이라는
+    # 핵심이 안 보인다. 원본 4줄은 그대로 두고, 낡은 리더보드 그림을 빼고 그 자리에
+    # 지문+정답 하이라이트 예제를 얹는다 (2026-09-01 사용자 지시 — 그림 빼고 예제만).
+    SlideExtra(
+        deck="1일차", page=58,
+        why="KorQuAD 태스크를 순위표 대신 실제 데이터 예제로 — 원본 유지, 그림 제거, 정답 하이라이트",
+        build_fn=build_korquad_example,
+        expect_texts=("교향곡", "1악장", "베토벤의 교향곡 9번",
+                      "무엇을 쓰고자 했는가?", "파우스트를 읽고"),
+    ),
 ]
 
 # ---------------------------------------------------------------------------
@@ -453,6 +1047,25 @@ NEW_SLIDES: dict[str, list[dict]] = {
             (1, '예: 한국어 질문 → 한국어 답 / 사실이 맞고 질문에 답할 것 / 영어로 답함·회피'),
             (0, '성공 기준이 여러 개면 지표도 여러 개 — 하나로 뭉뚱그리면 무엇이 나빠졌는지 모른다'),
             (0, '이 확인 수단을 학습(SFT·DPO·GRPO)보다 먼저 갖춘다 — 오늘 이 순서의 이유'),
+        ]},
+        {"header": '2. 태스크 정의와 평가',
+         "title": '평가 데이터 — 어떻게 만들고, 학습과 어떻게 분리하나',
+         "bullets": [
+            (0, '평가셋은 학습에 쓰지 않은 데이터여야 한다 — 배운 걸 다시 물으면 점수가 부풀려진다(암기 착시)'),
+            (1, "1일차 '데이터 누수'의 평가판 — 같은 출처·같은 예시가 학습과 평가 양쪽에 들어가면 안 된다"),
+            (0, '구축: 실제 분포를 대표하도록 표본 · 각 예시에 정답(reference)을 붙임 · 성공·실패 사례를 고루'),
+            (0, '분리: train(학습) / validation(튜닝하며 여러 번) / test(마지막에 한 번만)'),
+            (1, 'test 를 보며 튜닝하면 test 도 오염된다 — 그래서 마지막 한 번만 연다'),
+            (0, '이 실습에서 SFT·DPO·GRPO 가 train 과 test 를 나눈 이유가 바로 이것'),
+        ]},
+        {"header": '2. 태스크 정의와 평가',
+         "title": '평가셋을 실무에서 운영하는 법',
+         "bullets": [
+            (0, '골든셋을 고정하고 버전을 매긴다 — 시점 간 점수를 비교하려면 기준이 안 움직여야 한다'),
+            (0, '평가셋을 키운다: 운영 중 발견한 실패 사례를 되먹인다 (같은 실수의 재발 방지)'),
+            (0, '학습 파이프라인과 물리적으로 분리 — 평가셋이 실수로 학습에 흘러들지 않게'),
+            (0, '크기보다 대표성 — 수십 건으로 시작해 늘린다 (실습은 소규모로 감을 잡는다)'),
+            (0, '분포가 바뀌면(신제품·신주제) 평가셋도 갱신 — 한 지표에 올인하지 말고 조합해서 본다'),
         ]},
         {"header": '2. 태스크 정의와 평가',
          "title": '자동 지표 — BLEU 와 ROUGE',
@@ -622,8 +1235,7 @@ NEW_SLIDES: dict[str, list[dict]] = {
             (1, '그룹 평균보다 잘한 답은 확률↑, 못한 답은 확률↓ — 그룹 안에서 상대 평가'),
             (1, '절대 점수가 아니라서 별도의 기준선 모델이 필요 없다'),
             (0, '생성이 학습 루프 안에 있다 — GRPO 가 가장 비싼 이유'),
-            (0, '로그 읽는 법: format 이 먼저 1.0 에 가고 accuracy 가 천천히 따라온다'),
-            (1, '형식을 지키는 것이 답을 맞히는 것보다 쉬우니까'),
+            (0, '로그: format 이 먼저 1.0 에 가고 accuracy 가 천천히 따라온다 (형식이 더 쉬우니까)'),
         ]},
     ],
     "minigpt": [
@@ -773,20 +1385,24 @@ NEW_SLIDES: dict[str, list[dict]] = {
         {"header": '3. 자연어처리 머신러닝 소개 – 챗봇을 위한 자연어 처리 실습',
          "title": '토크나이저 확인 — 문장이 몇 개로 쪼개지나',
          "bullets": [
+            (0, 'tokenizer = AutoTokenizer.from_pretrained("jhu-clsp/mmBERT-base")'),
+            (0, 'test_sentence = "안녕하세요, 반갑습니다."'),
+            (1, 'encode = tokenizer.encode(test_sentence)'),
+            (1, 'token_print = [tokenizer.decode(token) for token in encode]'),
+            (1, 'print(encode)'),
+            (1, 'print(token_print)'),
             (0, '출력(토큰 ID·조각)은 실행해서 직접 확인하세요 — 모델마다 다릅니다'),
-            (0, '볼 것: 한 문장이 몇 개로 쪼개지는가 · [CLS]/[SEP] 가 자동으로 붙는가'),
-            (1, '같은 뜻의 한국어와 영어의 토큰 수가 다른 것 — 언어별 효율 차이'),
-            (0, '모델과 토크나이저는 항상 짝 — 다른 모델의 토크나이저를 섞으면 안 된다'),
-        ]},
+            (0, '볼 것: 몇 개로 쪼개지나 · [CLS]/[SEP]가 붙나 · 모델과 토크나이저는 항상 짝'),
+         ]},
     ],
     "ner_data": [
         {"header": '3. 자연어처리 머신러닝 소개 – 챗봇을 위한 자연어 처리 실습',
          "title": 'NER 데이터 — klue/klue (ner)',
          "bullets": [
             (0, 'dataset = load_dataset("klue/klue", "ner")'),
-            (0, '학습 21,008 문장 · 컬럼은 tokens 와 ner_tags (어절 단위 라벨)'),
-            (1, '예전의 kor_ner 는 datasets 5.x 에서 로딩되지 않습니다 (스크립트형)'),
-            (0, 'KLUE 는 test 정답이 비공개 — 평가는 validation 으로 합니다'),
+            (0, '학습 21,008 문장 · 컬럼은 tokens와 ner_tags (어절 단위 라벨)'),
+            (1, '예전의 kor_ner는 datasets 5.x에서 로딩되지 않습니다 (스크립트형)'),
+            (0, 'KLUE는 test 정답이 비공개 — 평가는 validation으로 합니다'),
         ]},
     ],
     "rag_run": [
@@ -817,7 +1433,7 @@ NEW_SLIDES: dict[str, list[dict]] = {
          "bullets": [
             (0, '텍스트를 숫자로 바꾸는 일을 사람이 했다 — 단어 빈도(BoW), TF-IDF'),
             (0, '그 위에 통계 모델(로지스틱 회귀 · SVM)을 얹는 구조'),
-            (0, '성능은 모델보다 피처 설계 손맛이 좌우했다'),
+            (0, '성능은 모델보다 피처를 어떻게 설계하느냐가 좌우했다'),
             (1, '새 도메인마다 피처를 다시 설계 — 옮겨 쓸 수 있는 것이 적었다'),
         ]},
         {"header": '2.\t트랜스포머와 ChatGPT – 머신러닝에서 딥러닝으로',
@@ -829,22 +1445,35 @@ NEW_SLIDES: dict[str, list[dict]] = {
             (1, '데이터가 많을수록 좋아지는 성질이 여기서 시작된다'),
         ]},
         {"header": '2.\t트랜스포머와 ChatGPT – 머신러닝에서 딥러닝으로',
-         "title": '순차 데이터와 RNN 의 한계',
+         "title": '순차 데이터와 RNN의 한계',
          "bullets": [
-            (0, '문장은 순서가 있는 데이터 — RNN 은 앞에서부터 차례로 읽는다'),
+            (0, '문장은 순서가 있는 데이터 — RNN은 앞에서부터 차례로 읽는다'),
             (0, '한계 ① 멀리 떨어진 단어의 관계가 흐려진다 (장거리 의존)'),
             (0, '한계 ② 순서대로만 계산할 수 있어 병렬화가 안 된다 — 크게 못 키운다'),
-            (1, '문장이 길어질수록, 데이터가 커질수록 두 한계가 함께 조여 온다'),
         ]},
         {"header": '2.\t트랜스포머와 ChatGPT – 머신러닝에서 딥러닝으로',
-         "title": '어텐션 — 관계를 직접 본다',
+         "title": '어텐션 — 전체를 두고, 중요한 것에 스스로 주목한다',
          "bullets": [
-            (0, '순서대로 전달하지 말고, 필요한 단어를 바로 참조하자는 발상'),
-            (0, '모든 단어 쌍의 관계를 점수로 계산 — 멀어도 흐려지지 않는다'),
-            (0, '순서 의존이 사라져 병렬 계산이 가능해졌다 — 키울 수 있게 됐다'),
-            (1, '이 어텐션만으로 쌓아 올린 구조가 다음 장의 트랜스포머입니다'),
+            (0, 'RNN처럼 앞에서부터 한 칸씩 전달하는 대신, 문장 전체를 한눈에 두고 시작한다'),
+            (0, '그 전체에서 지금 필요한 단어가 무엇인지 스스로 골라 주목한다 — 멀어도 흐려지지 않는다'),
+            (1, "사과가 떨어지는 장면에서, 배경 전체가 눈에 들어와도 '떨어지는 사과'에 저절로 주목하는 것과 같다"),
+            (0, '단어를 순서대로 처리할 필요가 없어 병렬 계산이 가능해졌다 — 크게 키울 수 있게 됐다'),
         ]},
     ],
+    # p51(Self-Attention 컨셉·행렬) 바로 앞. 어텐션 vs self-attention 을 구분하고,
+    # 한 단어가 같은 문장을 보는 예를 점수 막대로 먼저 보여준다 (p51 이 행렬로 일반화).
+    "selfattn_ex": [
+        {"header": '2.\t트랜스포머와 ChatGPT – Transformer 소개',
+         "title": 'Self-Attention — 한 문장이 자기 자신을 본다',
+         "bullets": [
+            (0, '앞의 어텐션은 두 문장 사이였다 — 예: 번역할 단어가 입력 문장을 본다'),
+            (0, 'Self-Attention은 한 문장 안에서, 각 단어가 같은 문장의 다른 단어를 본다'),
+            (1, '아래는 \'먹었다\'가 같은 문장의 단어들을 보는 정도 — 다음 장은 이걸 모든 단어 쌍으로 넓힌다'),
+        ]},
+    ],
+    # 원본 p58(KorQuAD)의 리더보드 캡처가 2019~2022년 것이라 낡았다. 순위표 대신
+    # "정답이 지문 속 구간"이라는 태스크 자체를 실제 데이터로 보여준다.
+    # 값은 datasets-server API 실측 (2026-09-01, train[0:3] — 세 문항이 지문을 공유).
     "pretrain_intro": [
         {"header": '1.\tPre-training 등장 배경과 목적',
          "title": '과제마다 모델을 새로 만들던 시대',
@@ -1141,6 +1770,23 @@ NEW_SLIDES: dict[str, list[dict]] = {
     ],
 }
 
+# ml2dl 의 p24(3방식 비교)·p25(어텐션 상세)에 도해를 붙인다. 딕셔너리 리터럴에
+# 직접 못 넣는 건 도해 함수가 위(EXTRAS 앞)에 정의돼 있고 NEW_SLIDES 가 그보다
+# 뒤라, 리터럴 안에서 이름을 참조하면 순서상 걸리기 때문이다. 여기서 사후 주입한다.
+NEW_SLIDES["ml2dl"][2]["diagram"] = draw_rnn_limit
+NEW_SLIDES["ml2dl"][2]["body_h_cm"] = 7.6
+# p25(어텐션 개념)에 사과 장면 이미지를 넣는다 — work/assets/p25_apple.png 가 있으면.
+# self-attention 점수 막대는 p51 앞 신규 장(selfattn_ex)으로 옮겼다.
+NEW_SLIDES["ml2dl"][3]["diagram"] = add_apple_image
+NEW_SLIDES["ml2dl"][3]["body_h_cm"] = 8.8
+NEW_SLIDES["selfattn_ex"][0]["diagram"] = draw_attention
+NEW_SLIDES["selfattn_ex"][0]["body_h_cm"] = 7.0
+# 3일차 메커니즘 도해 (2026-09-01)
+NEW_SLIDES["lora"][0]["diagram"] = draw_lora
+NEW_SLIDES["lora"][0]["body_h_cm"] = 9.0
+NEW_SLIDES["grpo_group"][0]["diagram"] = draw_grpo_group
+NEW_SLIDES["grpo_group"][0]["body_h_cm"] = 9.0
+
 
 # ---------------------------------------------------------------------------
 # 텍스트 채우기 (도너 복제 후)
@@ -1189,6 +1835,115 @@ def _fill_box(tf, lines: list[tuple[int, str]], size_scale: float | None = None)
         txBody.append(np_)
 
 
+# 표 서식 — 도너 본문과 같은 글꼴을 쓴다 (1일차 p19 실측: 맑은 고딕 24pt).
+# 슬라이드가 50.8×28.575cm(표준 16:9 의 1.5배)이라 pt 값도 1.5배로 잡아야 눈에 맞는다.
+TABLE_FONT = "맑은 고딕"
+TABLE_GRID_STYLE = "{5940675A-B579-460E-94D1-54222C63F5DA}"   # No Style, Table Grid
+
+
+def _set_ea_font(run, name: str) -> None:
+    """한글은 latin 만 지정하면 안 먹는다 — <a:ea> 를 따로 넣어야 한다."""
+    rPr = run.font._rPr
+    ea = rPr.find(qn("a:ea"))
+    if ea is None:
+        ea = etree.SubElement(rPr, qn("a:ea"))
+        latin = rPr.find(qn("a:latin"))
+        if latin is not None:
+            latin.addnext(ea)
+    ea.set("typeface", name)
+
+
+def _shade(cell, hex_rgb: str) -> None:
+    tcPr = cell._tc.get_or_add_tcPr()
+    for old in tcPr.findall(qn("a:solidFill")):
+        tcPr.remove(old)
+    fill = etree.SubElement(tcPr, qn("a:solidFill"))
+    etree.SubElement(fill, qn("a:srgbClr")).set("val", hex_rgb)
+
+
+def _add_table(slide, t: dict, body) -> None:
+    """신규 장에 표를 얹는다. 가로 위치·폭은 도너 본문 상자를 따른다.
+
+    python-pptx 의 기본 표 스타일은 파란 줄무늬라 이 덱과 어긋난다 —
+    "No Style, Table Grid" 로 바꾸고 머리행만 직접 칠한다 (2026-09-01).
+    """
+    rows = t["rows"]
+    n_r, n_c = len(rows), len(rows[0])
+    if any(len(r) != n_c for r in rows):
+        raise SystemExit("[중단] table.rows 의 열 수가 행마다 다릅니다")
+    widths = t["col_cm"]
+    if len(widths) != n_c:
+        raise SystemExit(f"[중단] table.col_cm {len(widths)}개 ≠ 열 {n_c}개")
+
+    row_cm = t.get("row_cm", 1.6)
+    left = Cm(t["left_cm"]) if "left_cm" in t else body.left
+    gf = slide.shapes.add_table(n_r, n_c, left, Cm(t["top_cm"]),
+                                Cm(sum(widths)), Cm(row_cm * n_r))
+    tbl = gf.table
+    tbl._tbl.tblPr.set("firstRow", "1")
+    st = tbl._tbl.tblPr.find(qn("a:tableStyleId"))
+    if st is None:
+        st = etree.SubElement(tbl._tbl.tblPr, qn("a:tableStyleId"))
+    st.text = TABLE_GRID_STYLE
+
+    for i, w in enumerate(widths):
+        tbl.columns[i].width = Cm(w)
+    for r, row in enumerate(rows):
+        tbl.rows[r].height = Cm(row_cm)
+        for c, text in enumerate(row):
+            cell = tbl.cell(r, c)
+            cell.margin_left = cell.margin_right = Cm(0.3)
+            cell.text = text
+            if r == 0:
+                _shade(cell, t.get("head_fill", "DEEEF3"))
+            para = cell.text_frame.paragraphs[0]
+            for run in para.runs:
+                run.font.name = TABLE_FONT
+                run.font.size = Pt(t.get("font_pt", 18))
+                run.font.bold = (r == 0)
+                _set_ea_font(run, TABLE_FONT)
+
+
+def _body_box(slide):
+    """장식·보일러플레이트를 뺀 가장 큰 텍스트 상자."""
+    boxes = [sh for sh in slide.shapes
+             if sh.has_text_frame and BOILER not in sh.text_frame.text
+             and sh.text_frame.text.strip()]
+    if not boxes:
+        raise SystemExit("[중단] 본문 텍스트 상자를 못 찾았습니다")
+    return max(boxes, key=lambda b: (b.width or 0) * (b.height or 0))
+
+
+def apply_extra(part, ex) -> None:
+    """원본 장에 도형을 덧붙인다 (SlideExtra)."""
+    slide = Slide(part._element, part)
+
+    if ex.add_bullets:
+        body = _body_box(slide)
+        tf = body.text_frame
+        tmpl = _para_templates(tf)
+        levels = sorted(tmpl)
+        for lv, tx in ex.add_bullets:
+            src = tmpl[lv] if lv in tmpl else tmpl[min(levels, key=lambda a: abs(a - lv))]
+            tf._txBody.append(_make_para(src, tx))
+        if ex.body_h_cm is not None:
+            body.height = Cm(ex.body_h_cm)
+
+    if ex.move_picture is not None:
+        pics = [sh for sh in slide.shapes if sh.shape_type == MSO_SHAPE_TYPE.PICTURE]
+        if not pics:
+            raise SystemExit(f"[중단] {ex.deck} p{ex.page}: 옮길 그림이 없습니다")
+        pic = max(pics, key=lambda s: (s.width or 0) * (s.height or 0))
+        l, t, w, h = ex.move_picture
+        pic.left, pic.top, pic.width, pic.height = Cm(l), Cm(t), Cm(w), Cm(h)
+
+    if ex.table is not None:
+        _add_table(slide, ex.table, _body_box(slide))
+
+    if ex.build_fn is not None:
+        ex.build_fn(slide)
+
+
 def fill_new_slide(part, spec: dict) -> None:
     slide = Slide(part._element, part)
     boxes = [sh for sh in slide.shapes
@@ -1227,7 +1982,14 @@ def fill_new_slide(part, spec: dict) -> None:
     lines = [(0, spec["title"])] + [(lv + 1, tx) for lv, tx in spec["bullets"]]
     _fill_box(body.text_frame, lines)
     if tagline is not None:
-        _fill_box(tagline.text_frame, [(0, "")])
+        _fill_box(tagline.text_frame, [(0, spec.get("tagline", ""))])
+    if "table" in spec:
+        _add_table(slide, spec["table"], body)
+    if "diagram" in spec:
+        # 본문 상자가 도해 자리를 침범하지 않게 높이를 줄이고, 그 아래에 도형을 그린다
+        if "body_h_cm" in spec:
+            body.height = Cm(spec["body_h_cm"])
+        spec["diagram"](slide)
 
 
 # ---------------------------------------------------------------------------
@@ -1256,6 +2018,10 @@ def build(dst_dir: Path | None = None, verbose: bool = True) -> dict[str, Path]:
     rules_by_page: dict[tuple[str, int], list[SlideRule]] = {}
     for r in RULES:
         rules_by_page.setdefault((r.deck, r.page), []).append(r)
+    extras_by_page: dict[tuple[str, int], list[SlideExtra]] = {}
+    for ex in EXTRAS:
+        extras_by_page.setdefault((ex.deck, ex.page), []).append(ex)
+    extra_hits = {id(ex): 0 for ex in EXTRAS}
     global_hits = {id(g): 0 for g in GLOBAL_RULES}
 
     # PowerPoint 가 산출물을 열어 두면 저장이 막힌다 — 시작 전에 전부 확인한다
@@ -1290,6 +2056,9 @@ def build(dst_dir: Path | None = None, verbose: bool = True) -> dict[str, Path]:
                         global_hits[id(g)] += pc.replace_in_tree(el, g.old, g.new)
                 part = pc.clone_slide(srcs[it.deck], zips[it.deck], it.page, shell,
                                       media, mutate_element=mutate)
+                for ex in extras_by_page.get((it.deck, it.page), []):
+                    apply_extra(part, ex)
+                    extra_hits[id(ex)] += 1
                 pc.append_slide_part(shell, part, sid)
                 n_ref += 1
             else:
@@ -1317,6 +2086,14 @@ def build(dst_dir: Path | None = None, verbose: bool = True) -> dict[str, Path]:
                 f"  사유: {g.why}")
     if verbose and GLOBAL_RULES:
         print(f"전역 규칙 {len(GLOBAL_RULES)}건 — 전부 기대 횟수와 일치")
+
+    for ex in EXTRAS:
+        if extra_hits[id(ex)] != 1:
+            raise SystemExit(
+                f"[중단] SlideExtra {ex.deck} p{ex.page}: {extra_hits[id(ex)]}회 적용 "
+                f"(기대 1 — 그 장이 배치에 없거나 두 번 들어간다)\n  사유: {ex.why}")
+    if verbose and EXTRAS:
+        print(f"덧붙임 규칙 {len(EXTRAS)}건 — 전부 적용")
     return outputs
 
 
