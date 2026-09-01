@@ -1051,7 +1051,258 @@ def _amz_extra(page, why, *build_fns, expect=()):
                       build_fn=_fn, expect_texts=expect)
 
 
+def draw_causal_mask(slide):
+    """Causal mask — 토큰×토큰 격자. 자기 자신과 앞쪽만 볼 수 있고 뒤(위삼각)는 가린다."""
+    toks = ["나", "는", "밥", "을", "먹"]
+    n = len(toks)
+    cell = 2.0
+    gx, gy = 18.6, 17.4          # 격자 좌상단
+    # 열 머리표(보는 대상) / 행 머리표(현재 토큰)
+    _label(slide, gx, gy - 1.4, n * cell, "→ 이 토큰들을 볼 수 있나", size=11, color="8A8A8A")
+    _label(slide, 10.6, gy + n * cell / 2 - 0.4, 7.0, "현재\n토큰", size=11, color="8A8A8A",
+           align=PP_ALIGN.LEFT)
+    for j, t in enumerate(toks):   # 열 라벨
+        _label(slide, gx + j * cell, gy - 0.7, cell, t, size=12, color="3A3A3A")
+    for i, t in enumerate(toks):   # 행 라벨
+        _label(slide, gx - 2.2, gy + i * cell + 0.5, 2.0, t, size=12, color="3A3A3A",
+               align=PP_ALIGN.LEFT)
+    for i in range(n):
+        for j in range(n):
+            allowed = j <= i       # 자기 자신·앞쪽만
+            fill, line = ("D9F0DF", "3E9E5A") if allowed else ("3A3A3A", "222222")
+            b = _kq_card(slide, gx + j * cell, gy + i * cell, cell - 0.15, cell - 0.15,
+                         fill=fill, line=line, radius=0.06)
+            b.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
+            p = b.text_frame.paragraphs[0]
+            p.alignment = PP_ALIGN.CENTER
+            _kq_run(p, "✓" if allowed else "✕", size=12, bold=True,
+                    color=("1A5A2E" if allowed else "FFFFFF"))
+    rx = gx + n * cell + 0.6
+    _label(slide, rx, gy + 0.4, 12.0, "초록 = 볼 수 있다\n(자기 자신·앞쪽)", size=12,
+           color="1A5A2E", align=PP_ALIGN.LEFT, bold=True)
+    _label(slide, rx, gy + 3.2, 12.0, "검정 = 가린다\n(아직 안 나온 뒤쪽)", size=12,
+           color="3A3A3A", align=PP_ALIGN.LEFT, bold=True)
+    _label(slide, 10.6, gy + n * cell + 0.5, 39.0,
+           "위쪽 삼각(뒤 단어)을 -inf 로 막으면 softmax 뒤 확률이 0 — 그래서 '다음'을 진짜로 맞히게 된다",
+           size=12, color="595959")
+
+
+def draw_gepa_loop(slide):
+    """GEPA 최적화 루프 — 프롬프트를 실행·채점하고, 피드백을 읽어 스스로 고쳐 쓴다 (반복)."""
+    cy = 19.4
+    steps = [
+        (11.0, "프롬프트\n(초안)", "EDEDED", "C9C9C9", "1A1A1A"),
+        (19.2, "실행\n결과 생성", "EAF2FB", "AEBECE", "1A1A1A"),
+        (27.4, "채점\n(metric)", "FBEED0", "E0B84E", "7A5A10"),
+        (35.6, "피드백 읽고\n프롬프트 수정", "D6E8FF", "378ADD", "134A8E"),
+    ]
+    W = 7.0
+    cxs = []
+    for l, txt, fill, line, tc in steps:
+        _box(slide, l, cy - 1.3, W, 2.6, txt, fill=fill, line=line, size=13, tcolor=tc)
+        cxs.append((l, l + W))
+    for i in range(3):
+        _line(slide, cxs[i][1], cy, cxs[i + 1][0], cy, color="5B6B7B", width_pt=1.6)
+    # 되먹임 화살표: 수정 → 다시 프롬프트 (아래로 돌아온다)
+    back_y = cy + 2.6
+    _line(slide, cxs[3][0] + W / 2, cy + 1.3, cxs[3][0] + W / 2, back_y, color="378ADD", width_pt=1.6, arrow=False)
+    _line(slide, cxs[3][0] + W / 2, back_y, cxs[0][0] + W / 2, back_y, color="378ADD", width_pt=1.6, arrow=False)
+    _line(slide, cxs[0][0] + W / 2, back_y, cxs[0][0] + W / 2, cy + 1.3, color="378ADD", width_pt=1.6)
+    _label(slide, 11.0, back_y + 0.2, 32.0, "점수가 오를 때까지 반복 — '프롬프트를 스스로 고쳐 쓴다'",
+           size=12, color="378ADD", bold=True)
+    _label(slide, 11.0, cy - 2.6, 38.0,
+           "사람이 프롬프트를 손보는 대신 — 채점 결과(피드백)를 모델이 읽고 다음 프롬프트를 쓴다",
+           size=13, color="1F4E79", bold=True)
+    _label(slide, 11.0, back_y + 1.4, 38.0,
+           "학습(가중치 변경) 없이 프롬프트만 바꿔 val 0.80 → 1.00 (L40S 실측)",
+           size=12, color="595959")
+
+
+def draw_gepa_principle(slide):
+    """RL vs GEPA — 배우는 신호의 차이. RL 은 숫자 하나, GEPA 는 '왜 틀렸는지' 문장."""
+    # --- RL 행 ---
+    yR, hR = 16.2, 2.2
+    _box(slide, 10.4, yR + 0.1, 3.2, hR, "RL\n(GRPO)", fill="F0EDE6", line="D8CFBE",
+         size=12, bold=True, tcolor="7A6A3A")
+    r = [(14.4, 5.8, "롤아웃\n(응답 생성)", "EDEDED", "C9C9C9", "1A1A1A"),
+         (22.0, 6.8, "보상 = 0.5", "FBEED0", "E0B84E", "7A5A10"),
+         (31.2, 6.8, "가중치를\n경사로 수정", "ECECEC", "B8B8B8", "5A5A5A")]
+    for l, w, t, f, ln, tc in r:
+        _box(slide, l, yR, w, hR, t, fill=f, line=ln, size=13, tcolor=tc)
+    for i in range(len(r) - 1):
+        _line(slide, r[i][0] + r[i][1], yR + hR / 2, r[i + 1][0], yR + hR / 2,
+              color="9A8A5A", width_pt=1.6)
+    _label(slide, 14.4, yR + hR + 0.15, 30.0,
+           "신호 = 숫자 하나 — '무엇이 왜 틀렸는지'는 알 수 없다",
+           size=12, color="7A6A3A", align=PP_ALIGN.LEFT)
+
+    # --- GEPA 행 ---
+    yG, hG = 20.4, 2.4
+    _box(slide, 10.4, yG + 0.15, 3.2, hG, "GEPA", fill="D6E8FF", line="378ADD",
+         size=13, bold=True, tcolor="134A8E")
+    g = [(14.4, 5.8, "롤아웃\n(응답 생성)", "EDEDED", "C9C9C9", "1A1A1A"),
+         (21.6, 9.0, "feedback\n'category 를 대분류로'", "D6E8FF", "378ADD", "134A8E"),
+         (32.4, 6.6, "reflection LM\n지시문 재작성", "EAF2FB", "AEBECE", "1A1A1A"),
+         (40.6, 6.6, "Pareto\n후보 선택", "DDEAF6", "8FB4D8", "1F4E79")]
+    for l, w, t, f, ln, tc in g:
+        _box(slide, l, yG, w, hG, t, fill=f, line=ln, size=13, tcolor=tc)
+    for i in range(len(g) - 1):
+        _line(slide, g[i][0] + g[i][1], yG + hG / 2, g[i + 1][0], yG + hG / 2,
+              color="5B6B7B", width_pt=1.6)
+    _label(slide, 14.4, yG + hG + 0.15, 34.0,
+           "신호 = 왜 틀렸는지(글) — 가중치는 그대로, 프롬프트만 고친다",
+           size=12, color="1F4E79", align=PP_ALIGN.LEFT, bold=True)
+
+    _label(slide, 10.4, 24.9, 39.0,
+           "같은 목표에 GEPA 는 최대 ~35× 적은 시도 — 숫자 대신 '이유'를 읽기 때문",
+           size=13, color="378ADD", bold=True)
+
+
+def draw_minhash(slide):
+    """MinHash 직관 — 실제 조각·번호로. 각 문서의 '가장 작은 번호'가 공통 조각이면 일치."""
+    # 조각에 해시로 번호를 매긴다. 나·다 는 두 문서 공통(초록).
+    A = [("가", 7, False), ("나", 2, True), ("다", 5, True), ("라", 9, False)]
+    B = [("나", 2, True), ("다", 5, True), ("마", 4, False), ("바", 8, False)]
+    cw, gap, lx = 3.8, 0.5, 15.4
+    yA, yB = 15.4, 17.9
+
+    def row(y, cells, label):
+        # 문서임을 분명히 — 태그 상자로
+        _box(slide, 10.2, y + 0.15, 4.4, 1.8, label, fill="1F4E79", line=None,
+             size=14, bold=True, tcolor="FFFFFF")
+        xs = []
+        for i, (sh, num, common) in enumerate(cells):
+            x = lx + i * (cw + gap)
+            xs.append(x + cw / 2)
+            is_min = (num == min(n for _, n, _ in cells))
+            fill, line, tc = (("D9F0DF", "3E9E5A", "1A5A2E") if common
+                              else ("EFEFEF", "C9C9C9", "6B6B6B"))
+            b = _kq_card(slide, x, y, cw, 2.1, fill=fill,
+                         line=("378ADD" if is_min else line))
+            if is_min:
+                b.line.width = Pt(2.5)
+            b.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
+            p = b.text_frame.paragraphs[0]
+            p.alignment = PP_ALIGN.CENTER
+            _kq_run(p, sh, size=15, bold=True, color=tc)
+            p2 = b.text_frame.add_paragraph()
+            p2.alignment = PP_ALIGN.CENTER
+            _kq_run(p2, "해시 " + str(num), size=11, color="8A8A8A")
+        return xs
+
+    _label(slide, 10.4, yA - 1.2, 39.0,
+           "각 조각에 해시로 번호를 매긴다 — 문서마다 '가장 작은 번호'의 조각을 고른 것이 MinHash",
+           size=12, color="595959")
+    xsA = row(yA, A, "문서 A")
+    xsB = row(yB, B, "문서 B")
+    # 두 문서의 최소(나·2)를 잇는다 — 같은 조각이라 일치
+    _line(slide, xsA[1], yA + 2.1, xsB[0], yB, color="378ADD", width_pt=1.8)
+    _label(slide, 10.4, yB + 2.3, 39.0,
+           "각 문서의 최소 = 둘 다 '나'(2)  →  MinHash 일치", size=13, color="1A5A2E", bold=True)
+
+    # ── 유사도(자카드)를 눈에 보이게: 합집합 6칸 중 겹침(초록) 2칸 ──
+    uy = yB + 4.0
+    union = [("가", False), ("나", True), ("다", True), ("라", False), ("마", False), ("바", False)]
+    ucw, ux0 = 2.3, 22.6
+    _label(slide, 10.4, uy + 0.1, 12.0, "유사도(자카드) =", size=13, color="1F4E79",
+           bold=True, align=PP_ALIGN.LEFT)
+    for i, (sh, common) in enumerate(union):
+        col = ("D9F0DF", "3E9E5A", "1A5A2E") if common else ("EFEFEF", "C9C9C9", "6B6B6B")
+        _box(slide, ux0 + i * (ucw + 0.25), uy, ucw, 1.5, sh, fill=col[0], line=col[1],
+             size=13, tcolor=col[2])
+    _label(slide, ux0 + 6 * (ucw + 0.25) + 0.3, uy + 0.1, 11.0,
+           "= 겹침 2 / 전체 6 ≈ 0.33", size=13, color="1F4E79", bold=True, align=PP_ALIGN.LEFT)
+    _label(slide, 10.4, uy + 2.0, 39.0,
+           "무작위 번호라, 최소가 겹침(초록)에 떨어질 확률이 곧 이 유사도 — MinHash 일치율로 유사도를 잰다",
+           size=12, color="595959")
+
+
+def draw_data_pipeline(slide):
+    """데이터 정제 파이프라인 — 원본 → 중복제거 → 품질필터 → 정제본."""
+    cy = 21.6
+    steps = [
+        (10.8, 6.4, "원본 위키\n5,000건", "EDEDED", "C9C9C9", "1A1A1A"),
+        (18.4, 7.2, "정확 중복 제거\n(해시)", "EAF2FB", "AEBECE", "1A1A1A"),
+        (27.0, 7.8, "근사 중복 제거\n(MinHash·LSH)", "EAF2FB", "AEBECE", "1A1A1A"),
+        (36.2, 6.6, "품질 필터\n(휴리스틱)", "FBEED0", "E0B84E", "7A5A10"),
+    ]
+    right = []
+    for l, w, txt, fill, line, tc in steps:
+        _box(slide, l, cy - 1.2, w, 2.4, txt, fill=fill, line=line, size=13, tcolor=tc)
+        right.append(l + w)
+    for i in range(3):
+        _line(slide, right[i], cy, steps[i + 1][0], cy, color="5B6B7B", width_pt=1.6)
+    _box(slide, 43.6, cy - 1.2, 5.8, 2.4, "정제본\n3,524건", fill="D9F0DF", line="3E9E5A",
+         size=13, tcolor="1A5A2E")
+    _line(slide, right[3], cy, 43.6, cy, color="5B6B7B", width_pt=1.6)
+    _label(slide, 10.8, cy - 3.0, 38.6,
+           "숫자만 보지 말고 실물을 열어 본다 — 이 실습의 반복 원칙", size=12, color="1F4E79", bold=True)
+
+
+def draw_cpt_tradeoff(slide):
+    """CPT replay 트레이드오프 — replay↑ 이면 동화 회복(좋음)·위키 악화(나쁨)."""
+    cols = [("replay 0%", "37.3", "53.5"), ("replay 5%", "22.5", "54.8"),
+            ("replay 25%", "20.5", "59.7")]
+    x0, dx, top = 15.0, 8.6, 16.6
+    _label(slide, 10.6, top - 0.2, 3.8, "동화 PPL\n(회복 = 좋다)", size=12, color="1A5A2E",
+           align=PP_ALIGN.LEFT)
+    _label(slide, 10.6, top + 4.6, 3.8, "위키 PPL\n(상승 = 대가)", size=12, color="C65B77",
+           align=PP_ALIGN.LEFT)
+    prev_story = prev_wiki = None
+    for i, (name, story, wiki) in enumerate(cols):
+        cx = x0 + i * dx
+        _box(slide, cx, top - 0.8, 6.4, 1.4, name, fill="EFEFEF", line="C9C9C9", size=13)
+        _box(slide, cx, top + 1.4, 6.4, 1.7, "동화 " + story, fill="D9F0DF", line="3E9E5A",
+             size=14, bold=True, tcolor="1A5A2E")
+        _box(slide, cx, top + 5.0, 6.4, 1.7, "위키 " + wiki, fill="FAD9E0", line="C65B77",
+             size=14, bold=True, tcolor="7A2A3E")
+        if prev_story is not None:
+            _line(slide, cx - dx + 6.4, top + 2.25, cx, top + 2.25, color="3E9E5A",
+                  width_pt=1.6)
+            _line(slide, cx - dx + 6.4, top + 5.85, cx, top + 5.85, color="C65B77",
+                  width_pt=1.6)
+        prev_story, prev_wiki = story, wiki
+    _label(slide, 10.6, top + 7.4, 38.6,
+           "replay 를 조금 섞으면 동화가 크게 돌아온다(37→22) — 대신 위키가 조금씩 나빠진다. 공짜가 아니다",
+           size=12, color="595959")
+
+
+def draw_amazon_pipeline(slide):
+    """Amazon 6단계 LLM 파이프라인 — 여러 호출을 엮어 상품 요약을 만든다 (스네이크)."""
+    r1y, r2y = 16.6, 21.4
+    top = [("① 요소 유형", "무슨 정보가 있나"), ("② 소분류", "요소를 묶는다"),
+           ("③ 값 추출", "각 요소의 값")]
+    bot = [("④ 소비자 유형", "누구를 위한 상품"), ("⑤ 소분류 요약", "묶음별 한 줄"),
+           ("⑥ 통합 요약", "소비자별 최종")]
+    xs = [11.0, 24.0, 37.0]
+    W = 11.4
+    for i, (t, s) in enumerate(top):
+        _box(slide, xs[i], r1y, W, 2.6, t + "\n" + s, fill="EAF2FB", line="378ADD",
+             size=13, tcolor="134A8E")
+        if i < 2:
+            _line(slide, xs[i] + W, r1y + 1.3, xs[i + 1], r1y + 1.3, color="5B6B7B", width_pt=1.6)
+    # 오른쪽에서 아래로 꺾는다
+    _line(slide, xs[2] + W / 2, r1y + 2.6, xs[2] + W / 2, r2y, color="5B6B7B", width_pt=1.6)
+    for i, (t, s) in enumerate(bot):
+        j = 2 - i    # 오른쪽→왼쪽
+        _box(slide, xs[j], r2y, W, 2.6, t + "\n" + s, fill="D9F0DF", line="3E9E5A",
+             size=13, tcolor="1A5A2E")
+        if i < 2:
+            _line(slide, xs[j], r2y + 1.3, xs[j - 1] + W, r2y + 1.3, color="5B6B7B", width_pt=1.6)
+    _label(slide, 11.0, r1y - 1.4, 37.8,
+           "한 번의 호출이 아니라 — 작은 LLM 호출 여섯 개를 파이프라인으로 엮는다",
+           size=13, color="1F4E79", bold=True)
+    _label(slide, 11.0, r2y + 2.9, 37.8,
+           "각 단계가 구조화 출력(JSON) — 다음 단계의 입력이 된다", size=12, color="595959")
+
+
 EXTRAS: list[SlideExtra] = [
+    SlideExtra(
+        deck="3일차", page=18,
+        why="Amazon 개요에 6단계 LLM 파이프라인 도해 — 단계가 장마다 흩어져 전체가 안 보인다 (2026-09-01)",
+        build_fn=draw_amazon_pipeline,
+        expect_texts=("요소 유형", "통합 요약", "파이프라인으로 엮는다"),
+    ),
     # Amazon 코드박스를 노트북 셀로 통째 교체 (완전 동기화, 2026-09-01)
     _amz_extra(25, "FeatureType",
                sync_amazon_pydantic("class FeatureType", "class FeatureType", _IMP),
@@ -1424,7 +1675,7 @@ NEW_SLIDES: dict[str, list[dict]] = {
          "bullets": [
             (0, '어텐션 = 토큰끼리 정보를 주고받는 부분'),
             (0, 'FeedForward = 토큰 하나하나를 따로 가공하는 부분'),
-            (0, 'Block 은 둘을 잔차(x + f(x))로 묶는다 — 깊게 쌓아도 그래디언트가 흐른다'),
+            (0, 'Block 은 둘을 잔차(x + f(x))로 묶는다 — 원래 정보를 잃지 않고 더하기만 해서, 깊게 쌓아도 학습이 무너지지 않는다'),
         ]},
         {"header": '3. 미니 GPT 만들기 – 모델 구현',
          "title": 'PreTrainedModel 상속 — 생태계에 얹는다',
@@ -1478,7 +1729,7 @@ NEW_SLIDES: dict[str, list[dict]] = {
          "title": '첫 번째 문제 — 토크나이저가 안 맞는다',
          "bullets": [
             (0, '동화로 학습한 사전 5,000 — 위키의 한자·용어·연도가 잘게 쪼개진다'),
-            (1, '실측: 동화 0.417 vs 위키 0.849 토큰/글자 — 2배 차이'),
+            (1, '실측: 동화 0.417 vs 위키 0.849 토큰/글자 (높을수록 잘게 쪼갬 = 비효율) — 2배 차이'),
             (0, '실무의 답은 어휘 확장 (llama-2-ko: 32,000→46,336)'),
             (1, '단 확장 직후엔 성능이 떨어졌다가 수십억 토큰을 학습해야 회복 — 실습에선 안 한다'),
         ]},
@@ -1499,11 +1750,18 @@ NEW_SLIDES: dict[str, list[dict]] = {
             (1, 'warmup 길이는 망각·적응 어디에도 영향 없음(같은 논문) — 튜닝 대상이 아니다'),
         ]},
         {"header": '4. 도메인 최적화 프리트레이닝에 대해서 – 이어학습 실습',
-         "title": '결과 — 숫자를 먼저 본다 (L40S 실측)',
+         "title": 'Perplexity — 다음 단어를 얼마나 못 맞히나',
          "bullets": [
-            (0, '동화 Perplexity:  학습 전 18.9  →  replay 0%: 37.3  /  5%: 22.5  /  25%: 20.5'),
-            (1, '위키 Perplexity 는 반대로 53.5 → 54.8 → 59.7 — 공짜가 아니다'),
-            (0, "replay 를 조금만 섞어도 상당히 돌아온다 — 문헌의 '1%만으로도 유의미' 그대로"),
+            (0, '모델에게 문장을 주고 다음 단어를 맞히게 했을 때, 얼마나 헷갈렸는지의 지표'),
+            (1, '낮을수록 좋다 — 확신하면 작고, 갈팡질팡하면 크다'),
+            (0, '값 자체보다 변화를 본다: 같은 평가셋에서 학습 전후로 오르내리는 방향'),
+            (0, '이어학습이 동화를 잊었나 = 동화 문장에 대한 perplexity 가 얼마나 올랐나'),
+            (1, '다음 장에서 replay 를 바꿔 가며 이 값이 어떻게 움직이는지 본다'),
+        ]},
+        {"header": '4. 도메인 최적화 프리트레이닝에 대해서 – 이어학습 실습',
+         "title": '결과 — replay 트레이드오프 (L40S 실측)',
+         "bullets": [
+            (0, "replay 를 조금만 섞어도 동화가 상당히 돌아온다 — 문헌의 '1%만으로도 유의미' 그대로"),
             (0, '생성 결과에도 문체 오염이 보인다 — 동화를 쓰다 백과사전 말투가 튀어나온다'),
         ]},
         {"header": '4. 도메인 최적화 프리트레이닝에 대해서 – 미니GPT 마무리',
@@ -1689,7 +1947,7 @@ NEW_SLIDES: dict[str, list[dict]] = {
          "title": 'MinHash — 시그니처로 압축',
          "bullets": [
             (0, 'shingle 집합을 여러 해시 함수로 돌려 각 함수의 최솟값만 남긴다'),
-            (0, '두 시그니처가 일치하는 비율 ≈ 자카드 유사도 (통계적 성질)'),
+            (0, '두 시그니처가 일치하는 비율 ≈ 자카드 유사도 (아래 그림의 직관)'),
             (0, '긴 문서도 고정 길이(예: 64개) 숫자로 — 이제 비교가 싸졌다'),
         ]},
         {"header": '2.\tPre-training 데이터 처리',
@@ -1723,8 +1981,17 @@ NEW_SLIDES: dict[str, list[dict]] = {
             (0, '데이터셋 카드를 함께 남긴다 — 몇 달 뒤엔 출처도 기준도 기억나지 않는다'),
         ]},
     ],
-    # Amazon 구조화 출력 코드 직전 — §9 함정을 개념으로 먼저 설명 (완전 동기화, 2026-09-01)
+    # Amazon 구조화 출력 코드 직전 — 생성 파라미터 + §9 함정을 개념으로 먼저 설명
     "amz_trap": [
+        {"header": '5.\tvLLM을 활용한 데이터 생성 실습 – LLM을 활용한 데이터처리 실습',
+         "title": '생성 파라미터 — 무엇을 걸고 생성하나',
+         "bullets": [
+            (0, 'temperature: 다음 단어를 얼마나 과감하게 고르나 (0에 가까울수록 보수적·일관)'),
+            (1, '추출·분류처럼 정답이 정해진 일에는 낮게 (이 실습은 0.2)'),
+            (0, 'top_p: 확률 상위 몇 %의 후보에서만 고른다 (나머지는 잘라 버린다)'),
+            (0, 'seed: 같은 입력에 같은 출력이 나오도록 — 재현성'),
+            (1, 'temperature·top_p·seed 는 3일차 퓨샷에서 직접 바꿔 가며 확인한다'),
+        ]},
         {"header": '5.\tvLLM을 활용한 데이터 생성 실습 – LLM을 활용한 데이터처리 실습',
          "title": '구조화 출력의 함정 — 스키마에 길이 상한이 없으면 잘린다',
          "bullets": [
@@ -1756,6 +2023,15 @@ NEW_SLIDES: dict[str, list[dict]] = {
             (1, '같은 번역을 세 번 채점해 점수가 흔들리는 것도 직접 확인'),
             (0, '3막 — DSPy GEPA: 프롬프트를 자동으로 고쳐 쓴다'),
             (1, '산출물(amazon_ko.jsonl)은 3일차 SFT 의 학습 데이터가 된다'),
+        ]},
+        {"header": '6.\t프롬프트 자동 최적화',
+         "title": "GEPA — 점수가 아니라 '왜 틀렸는지'로 배운다",
+         "bullets": [
+            (0, 'GEPA = Genetic-Pareto. 가중치는 한 번도 바꾸지 않고 프롬프트 텍스트만 진화시킨다'),
+            (0, '① 신호가 숫자가 아니라 글 — 점수와 함께 오는 feedback 문장이 그래디언트 역할'),
+            (0, '② reflection LM 이 그 글을 읽고 지시문을 다시 쓴다 = 돌연변이(mutation)'),
+            (0, '③ Pareto frontier — 한 샘플이라도 최고인 후보를 보존해 다양성을 유지(선택)'),
+            (1, '함정: feedback 없이 점수만 주면 reflection 이 "score 0.5" 만 봐 무력해진다'),
         ]},
         {"header": '6.\t프롬프트 자동 최적화',
          "title": '핵심 규칙 — 목적함수에 노이즈가 없어야 한다',
@@ -1936,6 +2212,28 @@ NEW_SLIDES["lora"][0]["diagram"] = draw_lora
 NEW_SLIDES["lora"][0]["body_h_cm"] = 9.0
 NEW_SLIDES["grpo_group"][0]["diagram"] = draw_grpo_group
 NEW_SLIDES["grpo_group"][0]["body_h_cm"] = 9.0
+
+# 2일차 도해 (2026-09-01) — CPT 결과 = minigpt_cpt[5] (LR 뒤 Perplexity 삽입으로 +1),
+# 데이터처리 산출물 = datacleaning[-1]
+def _idx_by_title(key, title_sub):
+    for i, spec in enumerate(NEW_SLIDES[key]):
+        if title_sub in spec.get("title", ""):
+            return i
+    raise SystemExit(f"[중단] {key} 에서 제목 '{title_sub}' 못 찾음")
+
+
+NEW_SLIDES["minigpt_cpt"][_idx_by_title("minigpt_cpt", "replay 트레이드오프")]["diagram"] = draw_cpt_tradeoff
+NEW_SLIDES["minigpt_cpt"][_idx_by_title("minigpt_cpt", "replay 트레이드오프")]["body_h_cm"] = 5.0
+NEW_SLIDES["datacleaning"][_idx_by_title("datacleaning", "산출물")]["diagram"] = draw_data_pipeline
+NEW_SLIDES["datacleaning"][_idx_by_title("datacleaning", "산출물")]["body_h_cm"] = 8.5
+NEW_SLIDES["datacleaning"][_idx_by_title("datacleaning", "MinHash — 시그니처로 압축")]["diagram"] = draw_minhash
+NEW_SLIDES["datacleaning"][_idx_by_title("datacleaning", "MinHash — 시그니처로 압축")]["body_h_cm"] = 6.5
+NEW_SLIDES["minigpt"][_idx_by_title("minigpt", "Causal Self-Attention")]["diagram"] = draw_causal_mask
+NEW_SLIDES["minigpt"][_idx_by_title("minigpt", "Causal Self-Attention")]["body_h_cm"] = 5.5
+NEW_SLIDES["promptopt"][_idx_by_title("promptopt", "학습 전에 최선")]["diagram"] = draw_gepa_loop
+NEW_SLIDES["promptopt"][_idx_by_title("promptopt", "학습 전에 최선")]["body_h_cm"] = 6.5
+NEW_SLIDES["promptopt"][_idx_by_title("promptopt", "왜 틀렸는지")]["diagram"] = draw_gepa_principle
+NEW_SLIDES["promptopt"][_idx_by_title("promptopt", "왜 틀렸는지")]["body_h_cm"] = 8.0
 
 
 # ---------------------------------------------------------------------------
