@@ -592,6 +592,99 @@ def _kq_card(slide, l, t, w, h, *, fill, line=None, radius=0.08):
     return box
 
 
+import json as _json
+
+# Amazon 구조화 출력 코드는 노트북에서 §9 함정(길이 상한·finish_reason·temperature)을
+# 고쳤는데 슬라이드는 옛 버그 코드였다. 슬라이드 코드박스를 **노트북 셀로 통째 교체**해
+# 완전 동기화한다 — 전사 오류 0, 노트북이 바뀌면 자동 반영 (2026-09-01 사용자 지시).
+_AMZ_NB = ROOT / "work" / "notebook" / "2일차" / "2_HPC_Amazon요약실습.ipynb"
+_amz_cache = None
+
+
+def _amz_cells():
+    global _amz_cache
+    if _amz_cache is None:
+        nb = _json.loads(_AMZ_NB.read_text(encoding="utf-8"))
+        _amz_cache = ["".join(c.get("source", [])) for c in nb["cells"]
+                      if c.get("cell_type") == "code"]
+    return _amz_cache
+
+
+def _amz_src(anchor):
+    for s in _amz_cells():
+        if anchor in s:
+            return s.rstrip("\n")
+    raise SystemExit(f"[중단] Amazon 노트북에서 앵커 못 찾음: {anchor!r}")
+
+
+# 노트북은 pydantic 클래스와 gen 함수를 **한 셀**에 넣는다. 슬라이드는 둘을 다른
+# 장에 보여주므로, 셀을 class 부분과 gen 부분으로 나눠 가져온다.
+def _amz_pydantic_src(anchor):
+    s = _amz_src(anchor)
+    i = s.find("\ndef ")
+    return (s[:i] if i != -1 else s).rstrip("\n")
+
+
+def _amz_gen_src(fn_name):
+    s = _amz_src("def " + fn_name)
+    i = s.find("def " + fn_name)
+    return s[i:].rstrip("\n")
+
+
+def _set_code_box(slide, box_anchor, source_text):
+    """코드박스(문단=줄)를 source_text 로 재구성한다. 첫 코드 문단을 서식 템플릿으로."""
+    box = next((sh for sh in slide.shapes
+                if sh.has_text_frame and box_anchor in sh.text_frame.text), None)
+    if box is None:
+        raise SystemExit(f"[중단] Amazon 코드박스 못 찾음: {box_anchor!r}")
+    tb = box.text_frame._txBody
+    ps = tb.findall(qn("a:p"))
+    tmpl = next((pe for pe in ps if pe.findall(".//" + qn("a:t"))), None)
+    if tmpl is None:
+        raise SystemExit(f"[중단] 코드박스에 템플릿 문단 없음: {box_anchor!r}")
+    new_ps = []
+    for ln in source_text.rstrip("\n").split("\n"):
+        c = copy.deepcopy(tmpl)
+        for br in c.findall(".//" + qn("a:br")):
+            br.getparent().remove(br)
+        runs = c.findall(".//" + qn("a:t"))
+        runs[0].text = ln if ln else " "
+        # 들여쓰기 공백 보존 (xml:space=preserve) — qn 은 xml 접두사를 모른다
+        runs[0].set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+        for r in runs[1:]:
+            r.text = ""
+        new_ps.append(c)
+    for pe in ps:
+        tb.remove(pe)
+    for np_ in new_ps:
+        tb.append(np_)
+
+
+def sync_amazon_pydantic(box_anchor, class_anchor, imports):
+    def _fn(slide):
+        _set_code_box(slide, box_anchor, imports + "\n\n" + _amz_pydantic_src(class_anchor))
+    return _fn
+
+
+def sync_amazon_gen(def_anchor, fn_name):
+    def _fn(slide):
+        box = next((sh for sh in slide.shapes
+                    if sh.has_text_frame and def_anchor in sh.text_frame.text), None)
+        had_call = box is not None and ("= " + fn_name + "(") in box.text_frame.text
+        src = _amz_gen_src(fn_name)
+        if had_call:
+            src += "\n\n" + _amz_src("= " + fn_name + "(")
+        _set_code_box(slide, def_anchor, src)
+    return _fn
+
+
+def sync_amazon_full(box_anchor, cell_anchor, imports):
+    # 원본 슬라이드가 class+gen 을 한 박스에 둔 경우 — 셀 전체(class+gen)로 교체.
+    def _fn(slide):
+        _set_code_box(slide, box_anchor, imports + "\n\n" + _amz_src(cell_anchor))
+    return _fn
+
+
 def _code_line_after(box, anchor_substr, new_text):
     """코드 상자에서 anchor_substr 이 든 문단 바로 뒤에 new_text 한 줄을 넣는다.
     코드 슬라이드는 줄마다 별도 <a:p> 라 문단을 복제해 삽입하면 서식이 유지된다."""
@@ -944,7 +1037,49 @@ def draw_rag_pipeline(slide):
            size=12, color="1F4E79", bold=True)
 
 
+_IMP = "from pydantic import BaseModel, Field\nfrom typing import List"
+_IMP_ANN = "from pydantic import BaseModel, Field\nfrom typing import Annotated, List"
+
+
+def _amz_extra(page, why, *build_fns, expect=()):
+    # 한 페이지에 여러 코드박스(클래스+gen)면 build_fn 을 순서대로 적용한다.
+    def _fn(slide):
+        for f in build_fns:
+            f(slide)
+    return SlideExtra(deck="3일차", page=page,
+                      why="Amazon 구조화 출력 노트북 동기화 (§9 터짐 버그) — " + why,
+                      build_fn=_fn, expect_texts=expect)
+
+
 EXTRAS: list[SlideExtra] = [
+    # Amazon 코드박스를 노트북 셀로 통째 교체 (완전 동기화, 2026-09-01)
+    _amz_extra(25, "FeatureType",
+               sync_amazon_pydantic("class FeatureType", "class FeatureType", _IMP),
+               expect=("Field(max_length=40)", "Field(max_length=200)")),
+    _amz_extra(28, "gen_text_step_1",
+               sync_amazon_gen("def gen_text_step_1", "gen_text_step_1"),
+               expect=("temperature=0.2", "max_tokens=2048", 'finish_reason == "length"')),
+    _amz_extra(32, "Subsection",
+               sync_amazon_pydantic("class Subsection", "class Subsection", _IMP_ANN),
+               expect=("Annotated[str, Field(max_length=60)]", "Field(max_length=10)")),
+    _amz_extra(33, "gen_text_step_2",
+               sync_amazon_gen("def gen_text_step_2", "gen_text_step_2"),
+               expect=("temperature=0.2", 'finish_reason == "length"')),
+    # p36·39·45·49 는 class+gen 이 한 박스라 셀 전체로 교체 (원본 실측)
+    _amz_extra(36, "ExtractedFeature + gen_text_step_3",
+               sync_amazon_full("class ExtractedFeature", "class ExtractedFeature", _IMP),
+               expect=("Field(max_length=30)", 'finish_reason == "length"')),
+    _amz_extra(39, "ConsumerCategory + gen_text_step_4",
+               sync_amazon_full("class ConsumerCategory", "class ConsumerCategory", _IMP),
+               expect=("Field(max_length=6)", 'finish_reason == "length"')),
+    _amz_extra(45, "SummaryDescription(400) + gen_text_summary",
+               sync_amazon_full("class SummaryDescription",
+                                "summary: str = Field(max_length=400)", _IMP),
+               expect=("Field(max_length=400)", 'finish_reason == "length"')),
+    _amz_extra(49, "SummaryDescription(1000) + gen_text_featured_summary",
+               sync_amazon_full("class SummaryDescription",
+                                "summary: str = Field(max_length=1000)", _IMP),
+               expect=("Field(max_length=1000)", 'finish_reason == "length"')),
     SlideExtra(
         deck="3일차", page=55,
         why="RAG 개요에 파이프라인 도해 — 질문→BM25→문서→LLM→답 (2026-09-01)",
@@ -1586,6 +1721,21 @@ NEW_SLIDES: dict[str, list[dict]] = {
             (0, 'ko_wiki_clean.jsonl — 5,000건 → 정제 후 3,524건 (실습 29초, L40S 실측)'),
             (0, '이 파일을 잠시 뒤 미니 GPT 의 이어학습(CPT)이 그대로 읽는다'),
             (0, '데이터셋 카드를 함께 남긴다 — 몇 달 뒤엔 출처도 기준도 기억나지 않는다'),
+        ]},
+    ],
+    # Amazon 구조화 출력 코드 직전 — §9 함정을 개념으로 먼저 설명 (완전 동기화, 2026-09-01)
+    "amz_trap": [
+        {"header": '5.\tvLLM을 활용한 데이터 생성 실습 – LLM을 활용한 데이터처리 실습',
+         "title": '구조화 출력의 함정 — 스키마에 길이 상한이 없으면 잘린다',
+         "bullets": [
+            (0, 'json_schema 로 형식은 강제되지만, 문자열 필드에 상한이 없으면 제약 디코딩이 끝없이 늘린다'),
+            (1, 'max_tokens 에 걸려 JSON 이 중간에서 잘리고 → 몇 셀 뒤 json.loads 가 "Unterminated string" 으로 죽는다'),
+            (1, '원인에서 가장 먼 곳에서 드러난다 — 가장 잡기 나쁜 형태'),
+            (0, '두 가지 안전장치를 반드시 함께:'),
+            (1, '① pydantic Field(max_length=N) — 각 문자열에 상한을 못박아 모델이 그 안에 들어오게 한다'),
+            (1, '② finish_reason == "length" 검사 — 잘린 응답은 예외가 아니라 정상 응답이라 try/except 에 안 걸린다'),
+            (0, 'max_tokens 만 거는 것으로는 부족 — 상한을 거는 것과 그 안에 들어오게 만드는 것은 다르다'),
+            (1, '영어에선 우연히 넘어갔다가 한국어화로 출력이 길어지며 드러났다 (실측)'),
         ]},
     ],
     "promptopt": [

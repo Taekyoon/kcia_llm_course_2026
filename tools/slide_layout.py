@@ -116,7 +116,10 @@ PLACEMENT: dict[str, list] = {
         *refs("3일차", 4, 16),                 # CPT 이론 (13)
         NewSlide("minigpt_cpt", "CPT 실습 — 이론 뒤에 실습 (신규 6장, 자기검토에서 순서 교정)"),
         ref("3일차", 17),                      # 간지: vLLM 데이터처리 실습 (Amazon)
-        *refs("3일차", 18, 53, skip=(26, 27)), # Amazon 개요+7단계 (34) — p25 3중복 정리
+        *refs("3일차", 18, 24),                # Amazon 개요~STEP_1 프롬프트
+        # 구조화 출력의 함정(길이 상한·잘림 검사)을 코드 직전에 설명 (2026-09-01 완전 동기화)
+        NewSlide("amz_trap", "구조화 출력의 함정 — 길이 상한·finish_reason (신규 1장)"),
+        *refs("3일차", 25, 53, skip=(26, 27)), # pydantic~요약 7단계 — p25 3중복 정리
         NewSlide("promptopt", "프롬프트 자동 최적화 안내 (신규 ~4장 — 3막 구조)"),
         ref("2일차", 90),                      # 감사합니다
     ],
