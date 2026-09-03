@@ -1793,6 +1793,7 @@ NEW_SLIDES: dict[str, list[dict]] = {
             (0, '어휘와 문장 구조를 단순하게 설계한 데이터 — 작은 모델도 문법을 익힐 수 있게'),
             (1, '일반 웹 텍스트로 2M 모델을 학습하면 의미 없는 글자만 나온다'),
             (0, '이 선택이 뒤의 이어학습(CPT) 실험의 무대가 된다 — 동화만 아는 모델'),
+            (1, '데이터: g0ster/TinyStories-Korean (MIT) — 200자 이상 문서만 15만 개, 5%는 평가용'),
         ]},
         {"header": '3. 미니 GPT 만들기 – 토크나이저',
          "title": '토크나이저를 직접 학습한다 — ByteLevel BPE',
@@ -1805,7 +1806,7 @@ NEW_SLIDES: dict[str, list[dict]] = {
         {"header": '3. 미니 GPT 만들기 – 토크나이저',
          "title": '토큰화와 청킹',
          "bullets": [
-            (0, '사전학습은 긴 글을 고정 길이(SEQ_LEN)로 잘라 학습한다'),
+            (0, '사전학습은 긴 글을 고정 길이(SEQ_LEN=128)로 잘라 학습한다'),
             (1, '문서 경계에 맞추지 않고 이어붙인 뒤 자르는 것이 일반적'),
             (1, '패딩 낭비 없이 GPU 를 꽉 채워 쓰기 위해서'),
         ]},
@@ -1816,6 +1817,7 @@ NEW_SLIDES: dict[str, list[dict]] = {
             (0, '→ [ Decoder Block ] × N   (LayerNorm → Causal Self-Attention → 잔차 / FFN → 잔차)'),
             (0, '→ LayerNorm → Linear(vocab 크기) → 다음 토큰의 확률'),
             (1, '앞서 이론에서 본 그 구조를 코드로 그대로 옮긴다'),
+            (1, '실습값: 임베딩 256차원 · 헤드 4개(256/4=64) · 블록 4층 · FFN 1024 · dropout 0.1 — 합쳐서 약 2M'),
         ]},
         {"header": '3. 미니 GPT 만들기 – 모델 구현',
          "title": 'Causal Self-Attention — 뒤를 가린다',
@@ -1844,6 +1846,7 @@ NEW_SLIDES: dict[str, list[dict]] = {
             (0, '그것만 반복하면 문법과 표현을 스스로 익힌다 — 이것이 사전학습'),
             (0, 'Trainer 에 데이터셋만 넘기면 루프는 표준 — loss 가 내려가는지 본다'),
             (1, '너무 빨리 0 에 가까워지는 것도 좋은 신호가 아니다 (외우는 중일 수 있다)'),
+            (1, '실습값: 배치 64 · 3 에폭 · LR 5e-4 (이 값이 뒤 이어학습 LR 의 기준) — 학습 2~4분'),
         ]},
         {"header": '3. 미니 GPT 만들기 – 텍스트 생성',
          "title": '디코딩 전략 — 같은 모델, 다른 글',
@@ -1868,6 +1871,7 @@ NEW_SLIDES: dict[str, list[dict]] = {
             (1, '실무에서 Top-P 를 더 많이 쓰는 이유'),
             (0, '글자가 깨져 나오면(예: 깜짝�어) 버그가 아니라 ByteLevel 의 구조'),
             (1, '한글은 한 글자가 3바이트 — 낮은 확률 토큰까지 뽑으면 글자 중간 바이트만 나온다'),
+            (1, '실습값: Top-K 10 · Top-P 0.9 · temperature 는 0.5 / 1.0 / 1.5 세 값을 비교'),
         ]},
     ],
     "minigpt_cpt": [
@@ -1878,6 +1882,7 @@ NEW_SLIDES: dict[str, list[dict]] = {
             (0, '처음부터 다시는 너무 비싸다 → 이미 학습된 모델에 이어서 학습한다'),
             (1, 'llama-2-ko, EEVE-Korean 이 이 방식 — 한국어 LLM 대부분의 출생 경로'),
             (0, '재료는 오늘 첫 실습에서 정제한 ko_wiki_clean.jsonl (3,524건)'),
+            (1, '그중 2,000건 × 앞 2,000자만 쓴다(CPT_DOCS·CPT_CHARS) — 전부 넣으면 토큰화·청킹에 시간이 다 간다'),
         ]},
         {"header": '4. 도메인 최적화 프리트레이닝에 대해서 – 이어학습 실습',
          "title": '첫 번째 문제 — 토크나이저가 안 맞는다',
@@ -1911,6 +1916,7 @@ NEW_SLIDES: dict[str, list[dict]] = {
             (0, '값 자체보다 변화를 본다: 같은 평가셋에서 학습 전후로 오르내리는 방향'),
             (0, '이어학습이 동화를 잊었나 = 동화 문장에 대한 perplexity 가 얼마나 올랐나'),
             (1, '다음 장에서 replay 를 바꿔 가며 이 값이 어떻게 움직이는지 본다'),
+            (1, '이 모델: 무작위면 사전 크기 5,000 근처 → 사전학습 후 동화 18.9 (L40S 실측)'),
         ]},
         {"header": '4. 도메인 최적화 프리트레이닝에 대해서 – 이어학습 실습',
          "title": '결과 — replay 트레이드오프 (L40S 실측)',
@@ -2098,20 +2104,22 @@ NEW_SLIDES: dict[str, list[dict]] = {
             (0, '문서를 연속된 n글자 조각(shingle)의 집합으로 만든다'),
             (0, '겹침 정도 = 자카드 유사도  J(A,B) = |교집합| / |합집합|'),
             (0, '문제: 문서 2만 개면 비교 쌍이 2억 개 — 전부 비교할 수 없다'),
+            (1, '실습값 SHINGLE=5 — 한국어는 글자당 정보량이 커서 영어보다 짧게 잡는다'),
         ]},
         {"header": '2.\tPre-training 데이터 처리',
          "title": 'MinHash — 시그니처로 압축',
          "bullets": [
             (0, 'shingle 집합을 여러 해시 함수로 돌려 각 함수의 최솟값만 남긴다'),
             (0, '두 시그니처가 일치하는 비율 ≈ 자카드 유사도 (아래 그림의 직관)'),
-            (0, '긴 문서도 고정 길이(예: 64개) 숫자로 — 이제 비교가 싸졌다'),
+            (0, '긴 문서도 고정 길이 64개(NUM_HASH=64) 숫자로 — 이제 비교가 싸졌다'),
         ]},
         {"header": '2.\tPre-training 데이터 처리',
          "title": 'LSH 밴딩 — 비교 자체를 줄인다',
          "bullets": [
-            (0, '시그니처를 여러 밴드로 쪼갠다'),
+            (0, '시그니처 64개를 16개 밴드 × 4개로 쪼갠다 (BANDS=16)'),
             (0, '한 밴드라도 완전히 같은 문서끼리만 후보로 본다 — 나머지 쌍은 보지도 않는다'),
             (1, '실습에서는 numpy 벡터화로 수천 문서를 수 초에 처리한다'),
+            (0, '후보 쌍만 시그니처 일치율을 재서 0.8 이상(THRESHOLD)이면 중복 — 뒤에 나온 쪽을 버린다'),
         ]},
         {"header": '2.\tPre-training 데이터 처리',
          "title": '품질 필터 — 정답 없는 휴리스틱',
@@ -2403,34 +2411,30 @@ NEW_SLIDES["evalsec_b"][_idx_by_title("evalsec_b", "judge 코드")]["body_h_cm"]
 #   코드 문자열은 r""" 로 두어 \\s \\n 등이 그대로 남게 한다 (셀에서 대조 완료).
 #   코드 장 제목은 위 _idx_by_title 이 쓰는 예약 부분문자열을 피한다.
 # ---------------------------------------------------------------------------
+SCALING_ASSET = ROOT / "work" / "assets" / "scaling_law.png"
+
+
 def draw_scaling(slide):
-    """스케일링 법칙 — 3패널 거듭제곱. 연산·데이터·파라미터 ↑ → 손실 ↓ (로그–로그에서 직선).
-    Kaplan 2020 형태를 덱 스타일로 재작도 (원 논문 캡처 아님, 지수는 일반화 표기)."""
-    panels = [("연산 (Compute)", "L ∝ C^(−a)"),
-              ("데이터 (토큰 수)", "L ∝ D^(−b)"),
-              ("파라미터 수 (N)", "L ∝ N^(−c)")]
-    top, ph, pw = 13.5, 8.8, 11.0
-    xs = [8.6, 21.6, 34.6]
-    for (xlab, flab), px in zip(panels, xs):
-        _line(slide, px, top, px, top + ph, color="8A8A8A", width_pt=1.4, arrow=False)          # y축
-        _line(slide, px, top + ph, px + pw, top + ph, color="8A8A8A", width_pt=1.4, arrow=False)  # x축
-        _line(slide, px + 0.5, top + 0.9, px + pw - 0.4, top + ph - 0.7,                          # 거듭제곱 직선
-              color="2F6FB0", width_pt=2.6, arrow=False)
-        for f in (0.1, 0.37, 0.64, 0.9):                                                          # 데이터 점
-            cx = px + 0.5 + (pw - 0.9) * f
-            cy = top + 0.9 + (ph - 1.6) * f
-            dot = slide.shapes.add_shape(MSO_SHAPE.OVAL, Cm(cx - 0.17), Cm(cy - 0.17), Cm(0.34), Cm(0.34))
-            dot.fill.solid()
-            dot.fill.fore_color.rgb = RGBColor.from_string("6FA8DC")
-            dot.line.color.rgb = RGBColor.from_string("2F6FB0")
-            dot.line.width = Pt(0.75)
-            dot.shadow.inherit = False
-        _label(slide, px, top + ph + 0.25, pw, xlab, size=13, color="333333", bold=True)
-        _label(slide, px + 1.2, top + 0.15, pw - 1.2, flab, size=13, color="2F6FB0", align=PP_ALIGN.LEFT)
-    _label(slide, 4.7, top + 3.4, 3.6, "테스트 손실", size=12, color="595959", align=PP_ALIGN.LEFT)
-    _label(slide, 6.0, top + ph + 1.15, 40.0,
-           "셋을 함께 키우면 손실이 예측 가능하게 내려간다 — 로그–로그에서 직선(거듭제곱 법칙)",
-           size=14, color="1F4E79", bold=True)
+    """스케일링 법칙 그래프 — 이미지를 그대로 삽입하고 레퍼런스를 단다(2026-09-03 지시).
+
+    강사가 work/assets/scaling_law.png 로 저장하면 add_picture 로 넣는다(add_apple_image
+    패턴). 파일이 없으면 자리표시 박스를 두어 빌드는 깨지지 않는다. 손으로 다시 그리지
+    않는다. 출처 캡션은 두 경우 모두 슬라이드 하단 고정 위치에 남긴다."""
+    if SCALING_ASSET.exists():
+        slide.shapes.add_picture(str(SCALING_ASSET), Cm(13.0), Cm(14.2), width=Cm(24.8))
+    else:
+        print(f"  [안내] {SCALING_ASSET.name} 없음 — 스케일링 그래프 자리표시만 둠")
+        top, h, left, w = 13.5, 8.2, 9.0, 33.0
+        box = _kq_card(slide, left, top, w, h, fill="FAFBFC", line="C6CCD2", radius=0.02)
+        box.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
+        box.text_frame.word_wrap = True
+        p = box.text_frame.paragraphs[0]
+        p.alignment = PP_ALIGN.CENTER
+        _kq_run(p, "［ 스케일링 법칙 그래프 삽입 위치 — work/assets/scaling_law.png 저장 ］",
+                size=15, color="9AA0A6")
+    _label(slide, 9.0, 25.4, 33.0,
+           "출처: Kaplan et al. (2020), “Scaling Laws for Neural Language Models” · arXiv:2001.08361",
+           size=12, color="7A7A7A", align=PP_ALIGN.LEFT)
 
 
 NEW_SLIDES["pretrain_intro"][_idx_by_title("pretrain_intro", "스케일링")]["diagram"] = draw_scaling
@@ -2438,8 +2442,9 @@ NEW_SLIDES["pretrain_intro"][_idx_by_title("pretrain_intro", "스케일링")]["b
 
 
 def _codeslide(header, title, intro, code, *, body_h_cm=4.6, code_size=15):
+    # intro 항목은 문자열(레벨 0) 또는 (레벨, 문자열) 튜플을 받는다
     return {"header": header, "title": title,
-            "bullets": [(0, ln) for ln in intro],
+            "bullets": [ln if isinstance(ln, tuple) else (0, ln) for ln in intro],
             "code": _code(code), "body_h_cm": body_h_cm, "code_size": code_size}
 
 
@@ -2740,6 +2745,105 @@ optimizer = dspy.GEPA(
 )
 optimized = optimizer.compile(program, trainset=trainset, valset=valset)
 ''', body_h_cm=4.6, code_size=14)])
+
+
+# ---------------------------------------------------------------------------
+# 3일차 평가 실습 코드 슬라이드 (2026-09-03)
+#   평가 구간은 개념 장 위주라 코드가 judge() 하나뿐이었다 — 노트북 코드를 반영해
+#   다른 실습 구간과 밀도를 맞춘다. 개념 장 뒤에 대응 코드 장을 끼운다.
+#   제목은 위 _idx_by_title 앵커("자동 지표의 한계"·"judge 코드" 등)와 겹치지 않게 쓴다.
+# ---------------------------------------------------------------------------
+_EV = '2. 태스크 정의와 평가'
+
+_insert_after("evalsec_a", "평가셋을 실무에서 운영", [_codeslide(
+    _EV, '평가 데이터 · 응답 생성 (코드)',
+    [(0, '평가셋은 (질문, reference) 쌍 — 개수보다 대표성'),
+     (1, 'SFT 모델로 응답 생성, 없으면 예시 응답으로 폴백해 흐름은 동일하게')],
+    r'''
+eval_set = [
+    {"question": "대한민국의 수도는 어디인가요?",
+     "reference": "대한민국의 수도는 서울입니다."},
+    {"question": "광합성이 무엇인지 설명해주세요.",
+     "reference": "광합성은 식물이 빛으로 이산화탄소와 물에서 포도당을 만드는 과정입니다."},
+    # 김치 · 리스트/튜플 … 총 4건 (개수보다 reference 가 태스크를 대표하는가가 중요)
+]
+SFT_DIR = "data/sft_model"          # SFT 실습을 완주하면 잡힌다
+try:
+    tok = AutoTokenizer.from_pretrained(SFT_DIR)
+    model = AutoModelForCausalLM.from_pretrained(SFT_DIR, device_map="auto")
+    predictions = [generate(model, tok, ex["question"]) for ex in eval_set]
+except Exception:
+    predictions = [...]             # 모델 없으면 준비된 예시 응답으로 (흐름 동일)
+''', body_h_cm=4.6, code_size=12)])
+
+_insert_after("evalsec_a", "자동 지표 — BLEU", [_codeslide(
+    _EV, 'BLEU · ROUGE 계산 (코드)',
+    [(0, 'evaluate.load 로 불러와 .compute 로 계산'),
+     (1, '전체 평균과 건별을 함께 — 평균만 보면 무엇이 나빠졌는지 모른다')],
+    r'''
+bleu  = evaluate.load("sacrebleu")
+rouge = evaluate.load("rouge")
+refs  = [ex["reference"] for ex in eval_set]
+
+bleu_score  = bleu.compute(predictions=predictions,
+                           references=[[r] for r in refs])
+rouge_score = rouge.compute(predictions=predictions, references=refs)
+print(f"BLEU {bleu_score['score']:.2f}")
+for k in ["rouge1", "rouge2", "rougeL"]:
+    print(f"{k} {rouge_score[k]:.4f}")
+# 건별로도 본다 — 평균만 보면 무엇이 나빠졌는지 모른다
+''', body_h_cm=4.6, code_size=12)])
+
+_insert_after("evalsec_b", "자동 지표의 한계", [_codeslide(
+    _EV, '자동지표의 한계 — 5케이스 실측 (코드)',
+    [(0, '표현이 다르면 정답도 점수 하락, 틀려도 표현 비슷하면 점수 상승'),
+     (1, '★ 부산 케이스: 틀렸는데 BLEU 는 높다 — 표면 일치의 함정')],
+    r'''
+question  = "대한민국의 수도는 어디인가요?"
+reference = "대한민국의 수도는 서울입니다."
+cases = [
+    ("정답과 완전히 동일",    "대한민국의 수도는 서울입니다."),
+    ("뜻이 같고 표현만 다름",  "서울이 대한민국의 수도입니다."),
+    ("맞지만 더 짧음",        "서울입니다."),
+    ("★ 틀렸는데 표현이 비슷",  "대한민국의 수도는 부산입니다."),
+]
+for name, pred in cases:
+    b = bleu.compute(predictions=[pred], references=[[reference]])["score"]
+    r = rouge.compute(predictions=[pred], references=[reference])["rougeL"]
+    print(f"{name:<24}{b:>8.1f}{r:>10.3f}")
+''', body_h_cm=4.6, code_size=12)])
+
+_insert_after("evalsec_b", "judge 코드", [
+    _codeslide(
+        _EV, 'judge 를 평가셋에 적용 (코드)',
+        [(0, 'judge() 를 평가셋 전체에 돌려 축별 점수와 평균을 낸다')],
+        r'''
+results = []
+for ex, p in zip(eval_set, predictions):
+    s = judge(ex["question"], ex["reference"], p)
+    results.append(s)
+    print(ex["question"])
+    print(f"  정확성 {s['correctness']}  관련성 {s['relevance']}  자연스러움 {s['fluency']}")
+    print(f"  사유: {s['reason']}")
+
+print("── 평균 ──")
+for k in ["correctness", "relevance", "fluency"]:
+    print(f"  {k:<14}{mean(r[k] for r in results):.2f}")
+''', body_h_cm=3.6, code_size=12),
+    _codeslide(
+        _EV, '재채점 — judge 가 놓친 걸 잡는다 (코드)',
+        [(0, '같은 5케이스를 BLEU 와 judge 로 나란히 — 부산 케이스에서 갈린다'),
+         (1, '자동지표로 거르고 judge 로 확인하는 실무 순서의 근거')],
+        r'''
+# 자동지표가 틀리게 매긴 5케이스를 judge 로 다시 채점
+print(f"{'경우':<24}{'BLEU':>7}{'정확성':>8}")
+for name, pred in cases:
+    b = bleu.compute(predictions=[pred], references=[[reference]])["score"]
+    s = judge(question, reference, pred)
+    print(f"{name:<24}{b:>7.1f}{s['correctness']:>8}")
+# '부산' 케이스: BLEU 는 높아도 judge 정확성은 낮다 — 자동지표가 놓친 걸 잡는다
+''', body_h_cm=4.6, code_size=12),
+])
 
 
 # ---------------------------------------------------------------------------
