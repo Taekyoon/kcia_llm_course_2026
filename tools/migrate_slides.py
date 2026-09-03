@@ -1329,7 +1329,7 @@ def draw_gepa_loop(slide):
            "사람이 프롬프트를 손보는 대신 — 채점 결과(피드백)를 모델이 읽고 다음 프롬프트를 쓴다",
            size=13, color="1F4E79", bold=True)
     _label(slide, 11.0, back_y + 1.4, 38.0,
-           "학습(가중치 변경) 없이 프롬프트만 바꿔 val 0.80 → 1.00 (L40S 실측)",
+           "학습(가중치 변경) 없이 프롬프트만 바꿔 val 0.80 → 1.00 (실측)",
            size=12, color="595959")
 
 
@@ -2103,7 +2103,7 @@ NEW_SLIDES: dict[str, list[dict]] = {
             (0, '라이브러리가 주는 완성품 대신 GPT 구조를 직접 쌓고 데이터로 채운다'),
             (0, '약 2백만 파라미터 — 실습 시간 안에 학습이 끝나는 크기'),
             (1, '구조는 대형 모델과 완전히 같다. 크기만 다르다'),
-            (0, '전체(사전학습 + CPT 3회)가 약 4분 (L40S 실측 225초)'),
+            (0, '전체(사전학습 + CPT 3회)가 약 4분 (실측 225초)'),
         ]},
         {"header": '3. 미니 GPT 만들기 – 데이터',
          "title": '한국어 동화 (TinyStories)',
@@ -2234,10 +2234,10 @@ NEW_SLIDES: dict[str, list[dict]] = {
             (0, '값 자체보다 변화를 본다: 같은 평가셋에서 학습 전후로 오르내리는 방향'),
             (0, '이어학습이 동화를 잊었나 = 동화 문장에 대한 perplexity 가 얼마나 올랐나'),
             (1, '다음 장에서 replay 를 바꿔 가며 이 값이 어떻게 움직이는지 본다'),
-            (1, '이 모델: 무작위면 사전 크기 5,000 근처 → 사전학습 후 동화 18.9 (L40S 실측)'),
+            (1, '이 모델: 무작위면 사전 크기 5,000 근처 → 사전학습 후 동화 18.9 (실측)'),
         ]},
         {"header": '4. 도메인 최적화 프리트레이닝에 대해서 – 이어학습 실습',
-         "title": '결과 — replay 트레이드오프 (L40S 실측)',
+         "title": '결과 — replay 트레이드오프 (실측)',
          "bullets": [
             (0, "replay 를 조금만 섞어도 동화가 상당히 돌아온다 — 문헌의 '1%만으로도 유의미' 그대로"),
             (0, '생성 결과에도 문체 오염이 보인다 — 동화를 쓰다 백과사전 말투가 튀어나온다'),
@@ -2458,7 +2458,7 @@ NEW_SLIDES: dict[str, list[dict]] = {
         {"header": '2.\tPre-training 데이터 처리',
          "title": '산출물 — 오늘 만든 데이터로 오늘 학습한다',
          "bullets": [
-            (0, 'ko_wiki_clean.jsonl — 5,000건 → 정제 후 3,524건 (실습 29초, L40S 실측)'),
+            (0, 'ko_wiki_clean.jsonl — 5,000건 → 정제 후 3,524건 (실습 29초, 실측)'),
             (0, '이 파일을 잠시 뒤 미니 GPT 의 이어학습(CPT)이 그대로 읽는다'),
             (0, '데이터셋 카드를 함께 남긴다 — 몇 달 뒤엔 출처도 기준도 기억나지 않는다'),
         ]},
@@ -2495,7 +2495,7 @@ NEW_SLIDES: dict[str, list[dict]] = {
             (0, '파이프라인 산출물은 JSON 이 두 겹 — json.loads 를 두 번 벗겨야 요약 문장이 나온다'),
             (1, "실패한 행은 예외가 아니라 'error' 문자열로 들어 있다 — 파싱 결과가 dict 인지 확인해 거른다"),
             (0, '학습쌍으로 만들며 원본 결함도 손본다 — 쪼개진 브랜드명(F, a, t, , S, h, a, r, k) 복원 + 상품 설명 1,200자 컷'),
-            (0, 'data/amazon_ko_sft.mine.jsonl 저장 — 학습 예시 78건 (상품 10개, 제외 0건 · L40S 실측)'),
+            (0, 'data/amazon_ko_sft.mine.jsonl 저장 — 학습 예시 78건 (상품 10개, 제외 0건 · 실측)'),
             (1, '내일 SFT 가 이 파일을 강사 배포분(assets/amazon_ko_sft.jsonl.gz)과 합쳐 학습한다'),
         ]},
     ],
@@ -2540,7 +2540,7 @@ NEW_SLIDES: dict[str, list[dict]] = {
         {"header": '6.\t프롬프트 자동 최적화',
          "title": '결과 — 학습 없이 얻은 개선',
          "bullets": [
-            (0, 'GEPA 120회 호출, 약 1.7분 (L40S 실측) — val 0.80 → 1.00'),
+            (0, 'GEPA 120회 호출, 약 1.7분 (실측) — val 0.80 → 1.00'),
             (0, 'reflection LM 이 feedback 을 읽고 지시문을 스스로 고쳐 썼다'),
             (1, "예: 'category 는 가장 낮은 수준의 단일 분류어로' — 규칙을 스스로 써넣었다 (실행마다 문구는 달라짐)"),
             (0, '이 점수가 내일 학습과 비교할 기준선이 됩니다'),
@@ -3365,12 +3365,17 @@ def fill_new_slide(part, spec: dict) -> None:
     tagline = next((b for b in boxes[1:] if b is not body), None)
 
     _fill_box(header.text_frame, [(0, spec["header"])])
-    # 도너 본문의 레벨 구조: lvl0 = 소제목 스타일(불릿·24pt), lvl1/2 = 하위 불릿.
-    # 우리의 title → lvl0, bullets 의 level+1 → lvl1/2 로 자연 대응된다.
-    lines = [(0, spec["title"])] + [(lv + 1, tx) for lv, tx in spec["bullets"]]
-    _fill_box(body.text_frame, lines)
+    # 원본 슬라이드와 같은 구조로: 제목은 소제목 박스(볼드·불릿 없음, 도너의 tagline
+    # 자리)에 넣고, 본문에는 불릿만 자연 레벨(lvl0=주, lvl1=하위)로 둔다.
+    # 예전엔 제목을 본문 첫 불릿(lvl0)으로 넣어, 소제목 헤드가 있는 원본과 양식이
+    # 어긋났다 — 페이지마다 헤드 유무가 갈리는 원인이었다 (2026-09-03 사용자 지적).
     if tagline is not None:
-        _fill_box(tagline.text_frame, [(0, spec.get("tagline", ""))])
+        _fill_box(tagline.text_frame, [(0, spec["title"])])
+        _fill_box(body.text_frame, [(lv, tx) for lv, tx in spec["bullets"]])
+    else:
+        # 소제목 박스가 없는 도너 — 부득이 제목을 본문 맨 위에 둔다
+        _fill_box(body.text_frame,
+                  [(0, spec["title"])] + [(lv + 1, tx) for lv, tx in spec["bullets"]])
     if "table" in spec:
         _add_table(slide, spec["table"], body)
     if "diagram" in spec:
@@ -3413,11 +3418,38 @@ def _normalize_visual(part) -> None:
             if e.get("typeface") == "Courier New":
                 e.set("typeface", "Consolas")
     for bc in el.iter(qn("a:buChar")):
-        if bc.get("char") == "•":
-            bf = bc.getparent().find(qn("a:buFont"))
-            if bf is not None:              # 모든 • 은 Arial buFont 를 가진다(감사 확인)
+        if bc.get("char") in ("•", "§", "ü"):     # 기존 글머리표만 (자동번호 등은 제외)
+            pPr = bc.getparent()
+            bf = pPr.find(qn("a:buFont"))
+            if bf is not None:                     # 레벨 기준: lvl0=▪(§), lvl1+=✓(ü)
+                lvl = int(pPr.get("lvl", "0"))
                 bf.set("typeface", "Wingdings")
-                bc.set("char", "§")
+                bc.set("char", "§" if lvl == 0 else "ü")
+
+
+def _card_code_boxes(part) -> None:
+    """코드박스에 회색 카드 배경 + 테두리를 입혀 신규 코드 슬라이드와 통일한다
+    (2026-09-03 사용자 결정: 전 코드박스 카드 통일). _normalize_visual 이 폰트를 이미
+    Consolas 로 맞췄으므로 그걸로 코드박스를 식별한다. 신규 카드 박스엔 같은 값을 다시
+    써도 무해(멱등). 텍스트·위치·크기는 건드리지 않는다."""
+    slide = Slide(part._element, part)
+    for sh in slide.shapes:
+        if not sh.has_text_frame:
+            continue
+        runs = [r for para in sh.text_frame.paragraphs for r in para.runs]
+        if not runs:
+            continue
+        consolas = sum(1 for r in runs if (r.font.name or "") == "Consolas")
+        if consolas == 0 or consolas < len(runs) * 0.5:   # 코드박스(다수가 Consolas)만
+            continue
+        try:
+            sh.fill.solid()
+            sh.fill.fore_color.rgb = RGBColor.from_string("F5F7FA")
+            sh.line.color.rgb = RGBColor.from_string("D0D7DE")
+            sh.line.width = Pt(1)
+            sh.shadow.inherit = False
+        except (ValueError, AttributeError, TypeError):
+            pass
 
 
 def build(dst_dir: Path | None = None, verbose: bool = True) -> dict[str, Path]:
@@ -3475,6 +3507,7 @@ def build(dst_dir: Path | None = None, verbose: bool = True) -> dict[str, Path]:
                     apply_extra(part, ex)
                     extra_hits[id(ex)] += 1
                 _normalize_visual(part)
+                _card_code_boxes(part)
                 pc.append_slide_part(shell, part, sid)
                 n_ref += 1
             else:
@@ -3483,6 +3516,7 @@ def build(dst_dir: Path | None = None, verbose: bool = True) -> dict[str, Path]:
                     part = pc.clone_slide(srcs[dd], zips[dd], dp, shell, media)
                     fill_new_slide(part, spec)
                     _normalize_visual(part)
+                    _card_code_boxes(part)
                     pc.append_slide_part(shell, part, sid)
                     sid += 1
                     n_new += 1
