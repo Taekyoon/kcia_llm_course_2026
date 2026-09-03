@@ -295,6 +295,22 @@ RULES: list[SlideRule] = [
     SlideRule('3일차', 65, "print(prompts['response_synthesizer:refine_template'].default_template.template)",
               "query_engine.update_prompts({'response_synthesizer:refine_template': PromptTemplate(REFINE_KO)})   # from llama_index.core import PromptTemplate",
               '위와 동일 — 확인 print 대신 실제 등록', 1),
+    # 원본 덱 코드 문자열의 닫는 따옴표가 곱슬(“, U+201C)이라 복붙 시 SyntaxError —
+    # 곧은따옴표로 교정 (Fable 더블체크에서 발견, XML 실측 확정 2026-09-03)
+    SlideRule('2일차', 13, '표현해주세요.“', '표현해주세요."',
+              'TASK_PROMPT 닫는 따옴표 곱슬 → 곧은', 1),
+    SlideRule('2일차', 14, '""“', '"""',
+              '퓨샷 프롬프트 삼중따옴표 닫힘 세 번째가 곱슬 → 곧은', 1),
+    SlideRule('2일차', 15, '""“', '"""',
+              '퓨샷 프롬프트 삼중따옴표 닫힘 세 번째가 곱슬 → 곧은', 1),
+    SlideRule('2일차', 37, '{% endfor %}“', '{% endfor %}"',
+              'SFT DEFAULT_CHAT_TEMPLATE 닫는 따옴표 곱슬 → 곧은', 1),
+    SlideRule('2일차', 57, '{% endfor %}“', '{% endfor %}"',
+              'DPO DEFAULT_CHAT_TEMPLATE 닫는 따옴표 곱슬 → 곧은', 1),
+    SlideRule('3일차', 49, 'json format""“', 'json format"""',
+              'Amazon 프롬프트 삼중따옴표 닫힘 세 번째가 곱슬 → 곧은', 1),
+    SlideRule('3일차', 65, '개선된 답변: ""“', '개선된 답변: """',
+              'RAG REFINE_KO 삼중따옴표 닫힘 세 번째가 곱슬 → 곧은', 1),
     SlideRule('3일차', 68, '왜 꼬리질문이 필요할까요? \uf0e8 Q&A를 활용한 챗봇을 만든다면, 사용자가 직접 질문을 구체적으로 하기가 쉽지 않습니다.',
               '한 번의 검색으로 안 되는 질문이 있습니다 — "백남준과 맥스웰은 각각 어떤 분야의 인물인가요?" 를 통째로 검색하면 두 인물이 같이 나오는 문서를 찾게 됩니다.',
               '노트북의 프레이밍(복합 질문 분해)과 일치시킴', 1),
@@ -2026,8 +2042,9 @@ NEW_SLIDES: dict[str, list[dict]] = {
          "title": '자기지도학습 — 라벨 없이 배운다',
          "bullets": [
             (0, '사전학습의 라벨은 텍스트 자체다 — 다음 토큰 맞히기, 가린 토큰 맞히기'),
+            (1, '가린 토큰 맞히기 = MLM(BERT·양방향) · 다음 토큰 맞히기 = NTP(GPT·왼→오) — 어제 배운 그 둘'),
             (0, '사람이 라벨을 달지 않으므로 웹 전체가 학습 데이터가 된다'),
-            (1, '라벨 병목이 사라지자 남은 병목은 데이터의 양과 질'),
+            (1, '라벨 병목이 사라지자 남은 병목은 데이터의 양과 질 — 그래서 오늘 데이터 처리부터 한다'),
         ]},
         {"header": '1.\tPre-training 등장 배경과 목적',
          "title": '스케일링 — 크기가 능력을 산다',
@@ -2386,6 +2403,40 @@ NEW_SLIDES["evalsec_b"][_idx_by_title("evalsec_b", "judge 코드")]["body_h_cm"]
 #   코드 문자열은 r""" 로 두어 \\s \\n 등이 그대로 남게 한다 (셀에서 대조 완료).
 #   코드 장 제목은 위 _idx_by_title 이 쓰는 예약 부분문자열을 피한다.
 # ---------------------------------------------------------------------------
+def draw_scaling(slide):
+    """스케일링 법칙 — 3패널 거듭제곱. 연산·데이터·파라미터 ↑ → 손실 ↓ (로그–로그에서 직선).
+    Kaplan 2020 형태를 덱 스타일로 재작도 (원 논문 캡처 아님, 지수는 일반화 표기)."""
+    panels = [("연산 (Compute)", "L ∝ C^(−a)"),
+              ("데이터 (토큰 수)", "L ∝ D^(−b)"),
+              ("파라미터 수 (N)", "L ∝ N^(−c)")]
+    top, ph, pw = 13.5, 8.8, 11.0
+    xs = [8.6, 21.6, 34.6]
+    for (xlab, flab), px in zip(panels, xs):
+        _line(slide, px, top, px, top + ph, color="8A8A8A", width_pt=1.4, arrow=False)          # y축
+        _line(slide, px, top + ph, px + pw, top + ph, color="8A8A8A", width_pt=1.4, arrow=False)  # x축
+        _line(slide, px + 0.5, top + 0.9, px + pw - 0.4, top + ph - 0.7,                          # 거듭제곱 직선
+              color="2F6FB0", width_pt=2.6, arrow=False)
+        for f in (0.1, 0.37, 0.64, 0.9):                                                          # 데이터 점
+            cx = px + 0.5 + (pw - 0.9) * f
+            cy = top + 0.9 + (ph - 1.6) * f
+            dot = slide.shapes.add_shape(MSO_SHAPE.OVAL, Cm(cx - 0.17), Cm(cy - 0.17), Cm(0.34), Cm(0.34))
+            dot.fill.solid()
+            dot.fill.fore_color.rgb = RGBColor.from_string("6FA8DC")
+            dot.line.color.rgb = RGBColor.from_string("2F6FB0")
+            dot.line.width = Pt(0.75)
+            dot.shadow.inherit = False
+        _label(slide, px, top + ph + 0.25, pw, xlab, size=13, color="333333", bold=True)
+        _label(slide, px + 1.2, top + 0.15, pw - 1.2, flab, size=13, color="2F6FB0", align=PP_ALIGN.LEFT)
+    _label(slide, 4.7, top + 3.4, 3.6, "테스트 손실", size=12, color="595959", align=PP_ALIGN.LEFT)
+    _label(slide, 6.0, top + ph + 1.15, 40.0,
+           "셋을 함께 키우면 손실이 예측 가능하게 내려간다 — 로그–로그에서 직선(거듭제곱 법칙)",
+           size=14, color="1F4E79", bold=True)
+
+
+NEW_SLIDES["pretrain_intro"][_idx_by_title("pretrain_intro", "스케일링")]["diagram"] = draw_scaling
+NEW_SLIDES["pretrain_intro"][_idx_by_title("pretrain_intro", "스케일링")]["body_h_cm"] = 5.8
+
+
 def _codeslide(header, title, intro, code, *, body_h_cm=4.6, code_size=15):
     return {"header": header, "title": title,
             "bullets": [(0, ln) for ln in intro],
