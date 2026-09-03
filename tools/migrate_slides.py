@@ -284,8 +284,8 @@ RULES: list[SlideRule] = [
               '',
               '미사용 죽은 줄 (바로 아래 같은 식을 return)', 1),
     SlideRule('3일차', 19, 'pip install openai vllm datasets',
-              "%pip install -q -U 'openai<3' datasets    (vLLM 서버는 별도 venv)",
-              'Amazon 환경 세팅 장의 옛 설치 명령 (E-2 누락분)', 1),
+              "%pip install -q -U 'openai<3' datasets pydantic    (vLLM 서버는 별도 venv)",
+              'Amazon 환경 세팅 장의 옛 설치 명령 (E-2 누락분) + pydantic 추가 (TASK 2 — 노트북 설치 셀과 일치)', 1),
     SlideRule('3일차', 65, '만약 프롬프트를 수정하고자 한다면 템플릿 값에 새로운 프롬프트를 할당해주면 됩니다.',
               '프롬프트 교체는 update_prompts() 로 합니다 — 대입은 에러 없이 무시됩니다 (다음 장의 함정).',
               '바로 뒤 신규 장과 자기모순이던 옛 대입 방식 (자기검토)', 1),
@@ -453,6 +453,56 @@ RULES: list[SlideRule] = [
               '질의 텍스트로부터 의도 분류', '1일차 통독 (2026-09-01)' + ' — 띄어쓰기'),
     SlideRule('1일차', 32, '맞춰주도록 패딩작업을 수행합니다.',
               '맞춰주도록 패딩 작업을 수행합니다.', '1일차 통독 (2026-09-01)' + ' — 띄어쓰기'),
+
+    # ── Amazon(원본 3일차 18~53) 노트북 싱크 — TASK 2 (2026-09-03) ──────────
+    # 단계 제목 7종 — 노트북의 한국어 재구성 제목과 일치시킨다. 원본 제목이 장마다
+    # 반복되므로 배치에 실제로 들어가는 페이지 전부에 건다 (p26·27 은 배치에서 빠짐).
+    *[SlideRule('3일차', p, '파이프라인 1단계: 상품 요소들이 무엇이 있는지 파악하기',
+                '파이프라인 1단계 — 모델이 무엇을 아는지 묻는다',
+                'Amazon 노트북 싱크(TASK 2) — 단계 제목을 노트북과 일치', 1)
+      for p in (24, 25, 28, 29)],
+    *[SlideRule('3일차', p, '파이프라인 2단계: 상품 요소들을 묶어보기',
+                '파이프라인 2단계 — 정보를 그룹으로 묶는다',
+                'Amazon 노트북 싱크(TASK 2) — 단계 제목을 노트북과 일치', 1)
+      for p in (30, 31, 32, 33, 34)],
+    *[SlideRule('3일차', p, '파이프라인 3단계: 상품 정보 추출하기',
+                '파이프라인 3단계 — 실제 값을 뽑는다',
+                'Amazon 노트북 싱크(TASK 2) — 단계 제목을 노트북과 일치', 1)
+      for p in (35, 36, 37)],
+    *[SlideRule('3일차', p, '파이프라인 4단계: 상품 고객 예측',
+                '파이프라인 4단계 — 구매자 유형을 묻는다',
+                'Amazon 노트북 싱크(TASK 2) — 단계 제목을 노트북과 일치', 1)
+      for p in (38, 39, 40)],
+    *[SlideRule('3일차', p, '파이프라인 5단계: 요약문을 만들기 위한 정보 정리하기',
+                '파이프라인 5단계 — 뽑은 정보를 정리한다 (LLM 없이 코드로)',
+                'Amazon 노트북 싱크(TASK 2) — 단계 제목을 노트북과 일치', 1)
+      for p in (41, 42, 43)],
+    *[SlideRule('3일차', p, '파이프라인 6단계: 제품 정보만 모아서 요약하기',
+                '파이프라인 6단계 — 속성 그룹별로 요약한다',
+                'Amazon 노트북 싱크(TASK 2) — 단계 제목을 노트북과 일치', 1)
+      for p in (44, 45, 46, 47, 48)],
+    *[SlideRule('3일차', p, '파이프라인 7단계: 고객 대상에 맞게 상품 요약 만들기',
+                '파이프라인 7단계 — 구매자 유형별로 요약한다',
+                'Amazon 노트북 싱크(TASK 2) — 단계 제목을 노트북과 일치', 1)
+      for p in (49, 50, 51, 52)],
+    # 데이터 예제 장 — 실제 데이터의 결함(글자 단위로 쪼개진 브랜드)을 그대로 보여준다.
+    # 실행본 CELL 6 출력이 근거: "- Brand: F, a, t,  , S, h, a, r, k" (CLAUDE.md §9)
+    SlideRule('3일차', 21, '- Brand: Fat Shark',
+              '- Brand: F, a, t,  , S, h, a, r, k   ← 원본 데이터의 실제 결함 — 뒤에서 복원합니다',
+              'Amazon 노트북 싱크(TASK 2) — 원본을 눈으로 보라의 실물 사례', 1),
+    SlideRule('3일차', 25, '여기서는 Guided Structed 생성을 활용하여 우리가 필요로 하는 데이터를 Json 객체로 받고자 합니다.',
+              '여기서는 구조화 출력(response_format 의 json_schema)을 활용하여 우리가 필요로 하는 데이터를 JSON 객체로 받고자 합니다.',
+              'Amazon 노트북 싱크(TASK 2) — Guided Structed 오기 + 현행 API 용어', 1),
+    # 곱슬따옴표 — 원본 XML 실측 (2026-09-03). 살아남는 코드 줄만 고친다
+    # (p41·42·46 의 곱슬은 박스 통째 교체로 함께 사라진다)
+    SlideRule('3일차', 20, "train[:10]’)", "train[:10]')",
+              '원본 코드 곱슬따옴표 — 복붙 시 SyntaxError (XML 실측)', 1),
+    SlideRule('3일차', 21, "print(data[0]['text’])", "print(data[0]['text'])",
+              '원본 코드 곱슬따옴표 — 복붙 시 SyntaxError (XML 실측)', 1),
+    SlideRule('3일차', 50, "['consuber_categories’]}", "['consuber_categories']}",
+              '원본 코드 곱슬따옴표 — 복붙 시 SyntaxError (XML 실측)', 1),
+    SlideRule('3일차', 53, "'summary_by_subsection’])", "'summary_by_subsection'])",
+              '원본 코드 곱슬따옴표 — 복붙 시 SyntaxError (XML 실측)', 1),
 ]
 
 # 전역 규칙. expect 는 재사용 257장의 XML 결합 텍스트 실측값 (2026-08-27).
@@ -700,6 +750,154 @@ def sync_amazon_full(box_anchor, cell_anchor, imports):
     def _fn(slide):
         _set_code_box(slide, box_anchor, imports + "\n\n" + _amz_src(cell_anchor))
     return _fn
+
+
+def _find_box(slide, anchor):
+    box = next((sh for sh in slide.shapes
+                if sh.has_text_frame and anchor in sh.text_frame.text), None)
+    if box is None:
+        raise SystemExit(f"[중단] Amazon 코드박스 못 찾음: {anchor!r}")
+    return box
+
+
+def sync_amazon_prompt(var_name, h_cm=None):
+    """영문 프롬프트 박스를 노트북의 한국어 프롬프트 정의 셀로 통째 교체 (2026-09-03)."""
+    def _fn(slide):
+        box = _find_box(slide, var_name)
+        _set_code_box(slide, var_name, _amz_src(var_name + ' = """'))
+        if h_cm is not None:
+            box.height = Cm(h_cm)
+    return _fn
+
+
+def set_amazon_box(box_anchor, text_fn, h_cm=None):
+    """박스를 임의 텍스트로 교체 — 출력 예제(실행 결과) 한국어화용 (2026-09-03).
+    text_fn 은 지연 평가 (노트북 앵커 실패를 빌드 시점 SystemExit 로 받기 위해)."""
+    def _fn(slide):
+        box = _find_box(slide, box_anchor)
+        _set_code_box(slide, box_anchor, text_fn())
+        if h_cm is not None:
+            box.height = Cm(h_cm)
+    return _fn
+
+
+# ── Amazon 출력 예제 — 강사 실행본(2026-09-03, Downloads/2_HPC_Amazon요약실습.ipynb)
+#    의 실제 출력을 그대로 옮겼다. 지어내지 않는다. STEP1 만 원본 슬라이드의 생략
+#    표기(………………)를 따라 중간 4개 항목을 생략했다 (전문 36줄이 박스에 안 들어간다).
+_OUT_STEP1 = '''{
+  "feature_type_list": [
+    {
+      "feature_type": "브랜드",
+      "descript": "상품을 제조하거나 유통하는 제조사 또는 브랜드 이름."
+    },
+    {
+      "feature_type": "기능",
+      "descript": "상품이 제공하는 주요 기능이나 성능 특성."
+    },
+    {
+      "feature_type": "전송 주파수",
+      "descript": "상품이 사용하는 전송 주파수."
+    },
+    ………………
+    {
+      "feature_type": "기록 기능",
+      "descript": "상품이 내장된 촬영 장치를 통해 실시간으로 영상을 기록할 수 있는 기능."
+    }
+  ]
+}
+'''
+
+_OUT_STEP2 = '''{
+  "subsection_list": [
+    {
+      "subsection": "제품 기능",
+      "features": ["기능", "기록 기능"]
+    },
+    {
+      "subsection": "전송 성능",
+      "features": ["전송 주파수", "전송 파워"]
+    },
+    {
+      "subsection": "화면 사양",
+      "features": ["화면 각도", "화면 해상도"]
+    },
+    {
+      "subsection": "제품 구성",
+      "features": ["기기 구성"]
+    },
+    {
+      "subsection": "제품 식별",
+      "features": ["브랜드"]
+    }
+  ]
+}
+'''
+
+_OUT_STEP3 = '''{'feature_list': [{'feature_type': '브랜드', 'value': 'Fatshark'},
+  {'feature_type': '기능',
+   'value': '대형 스크린 FPV 헤드셋과 내장된 NexwaveRF 수신 기술을 통해 실시간으로 비행을 감지하고, 내장된 PilotHD 카메라를 통해 온보드 HD 영상을 기록할 수 있음'},
+  {'feature_type': '전송 주파수', 'value': '5.8Ghz'},
+  {'feature_type': '전송 파워', 'value': '250mW'},
+  {'feature_type': '화면 각도', 'value': '25도'},
+  {'feature_type': '화면 해상도', 'value': 'QVGA'},
+  {'feature_type': '기기 구성',
+   'value': '250mW 5.8Ghz 전송기, 25도 시야각 헤드셋, PilotHD 카메라, 실시간 AV 출력, 케이블, 안테나, 커넥터'},
+  {'feature_type': '기록 기능',
+   'value': '내장된 PilotHD 카메라를 통해 온보드 HD 영상을 실시간으로 기록할 수 있음'}]}
+'''
+
+_OUT_STEP4 = '''{
+  "consuber_categories": [
+    {
+      "user_category": "FPV 비행 애호가",
+      "describe": "실제 FPV 비행을 경험하고자 하는 사용자. 헤드셋과 카메라를 통해 드론을 제어하며 실시간 영상을 확인하는 데 관심이 있음."
+    },
+    {
+      "user_category": "드론 레크리에이션 사용자",
+      "describe": "드론을 레크리에이션 목적으로 사용하는 사용자. 헤드셋을 통해 드론 조종을 즐기고, 촬영한 영상을 자주 확인하는 경향 있음."
+    },
+    {
+      "user_category": "기술에 관심 있는 초보자",
+      "describe": "FPV 기술에 처음 접하는 사용자. 간단한 설정과 실시간 영상 기능을 통해 기술적 흥미를 느끼고 싶어 하는 사람."
+    },
+    {
+      "user_category": "비디오 콘텐츠 제작자",
+      "describe": "드론을 활용해 콘텐츠를 제작하거나 공유하는 사용자. PilotHD 카메라로 HD 영상을 기록하고, 실시간으로 확인하는 데 가치를 느끼는 사람."
+    }
+  ]
+}
+'''
+
+_OUT_FEATMAP = '''{'브랜드': 'Fatshark',
+ '기능': '대형 스크린 FPV 헤드셋과 내장된 NexwaveRF 수신 기술을 통해 실시간으로 비행을 감지하고, 내장된 PilotHD 카메라를 통해 온보드 HD 영상을 기록할 수 있음',
+ '전송 주파수': '5.8Ghz',
+ '전송 파워': '250mW',
+ '화면 각도': '25도',
+ '화면 해상도': 'QVGA',
+ '기기 구성': '250mW 5.8Ghz 전송기, 25도 시야각 헤드셋, PilotHD 카메라, 실시간 AV 출력, 케이블, 안테나, 커넥터',
+ '기록 기능': '내장된 PilotHD 카메라를 통해 온보드 HD 영상을 실시간으로 기록할 수 있음'}
+'''
+
+_OUT_SUBSEC = '''{'제품 기능': {'기능': '대형 스크린 FPV 헤드셋과 내장된 NexwaveRF 수신 기술을 통해 실시간으로 비행을 감지하고, 내장된 PilotHD 카메라를 통해 온보드 HD 영상을 기록할 수 있음',
+  '기록 기능': '내장된 PilotHD 카메라를 통해 온보드 HD 영상을 실시간으로 기록할 수 있음'},
+ '전송 성능': {'전송 주파수': '5.8Ghz', '전송 파워': '250mW'},
+ '화면 사양': {'화면 각도': '25도', '화면 해상도': 'QVGA'},
+ '제품 구성': {'기기 구성': '250mW 5.8Ghz 전송기, 25도 시야각 헤드셋, PilotHD 카메라, 실시간 AV 출력, 케이블, 안테나, 커넥터'},
+ '제품 식별': {'브랜드': 'Fatshark'}}
+'''
+
+_OUT_SUBSUM = '''{'제품 기능': '{"summary": "NexwaveRF와 PilotHD를 활용한 HD FPV 기능을 제공하며, 신뢰성과 실시간 전송을 확보한 고성능 드론 조종 시스템입니다."}',
+ '전송 성능': '{"summary": "5.8GHz 주파수와 250mW 전력으로 빠른 전송 성능을 제공"}',
+ '화면 사양': '{"summary": "25인치 QVGA 화면을 갖춘 제품"}',
+ '제품 구성': '{"summary": "250mW 5.8GHz 블루투스, 25cm 전송 거리, PilotHD 해상도, AV 출력, 전원 절약 기능 포함"}',
+ '제품 식별': '{"summary": "Fatshark는 게임용 헤드셋 브랜드다: 고해상도 오디오와 편안한 착용감을 제공하는 실시간 게임용 헤드셋이다."}'}
+'''
+
+_OUT_FINAL = '''{'FPV 비행 애호가': '{"summary": "NexwaveRF와 PilotHD를 활용한 고해상도 HD FPV 시스템을 제공하여 실시간 드론 제어를 가능하게 합니다. 5.8GHz 주파수와 250mW 전력으로 안정적이고 빠른 신호 전송을 실현하며, 25인치 QVGA 화면과 AV 출력을 통해 탁월한 시각 경험을 제공합니다. Fatshark 헤드셋은 고해상도 오디오와 편안한 착용감을 특징으로 하여, 실제 FPV 비행 경험을 위한 최적의 조종 환경을 구축합니다."}',
+ '드론 레크리에이션 사용자': '{"summary": "NexwaveRF와 PilotHD를 기반으로 한 고성능 HD FPV 시스템을 제공, 5.8GHz 주파수와 250mW 전력으로 실시간 전송 성능을 확보. 25인치 QVGA 화면과 블루투스 연결을 통해 드론 조종 시 실시간 촬영을 즐길 수 있으며, Fatshark 헤드셋의 고해상도 오디오와 편안한 착용감을 통해 레크리에이션용 드론 조종 경험을 향상시킴."}',
+ '기술에 관심 있는 초보자': '{"summary": "FPV 기술에 처음 접하는 초보자도 쉽게 사용할 수 있는 고성능 드론 조종 시스템입니다. NexwaveRF와 PilotHD를 활용해 HD 실시간 영상 전송을 제공하며, 5.8GHz 주파수와 250mW 전력으로 안정적이고 빠른 신호 전송을 실현합니다. 25인치 QVGA 화면을 통해 명확한 영상 확인이 가능하고, 전원 절약 기능과 25cm 전송 거리까지 지원하여 간편한 설정과 실시간 조종을 가능하게 합니다."}',
+ '비디오 콘텐츠 제작자': '{"summary": "비디오 콘텐츠 제작자들을 위한 고성능 드론 조종 시스템으로, NexwaveRF와 PilotHD를 결합한 HD FPV 기능을 제공합니다. 5.8GHz 주파수와 250mW 전력을 활용해 실시간 전송 성능을 최적화하고, 25인치 QVGA 화면을 통해 명확한 영상 확인이 가능합니다. 25cm 전송 거리와 AV 출력, 전원 절약 기능을 갖추어 실용성과 효율성을 높였으며, 드론 제작 및 콘텐츠 공유에 최적화된 시스템입니다."}'}
+'''
 
 
 def _code_line_after(box, anchor_substr, new_text):
@@ -1287,10 +1485,10 @@ def draw_cpt_tradeoff(slide):
 def draw_amazon_pipeline(slide):
     """Amazon 6단계 LLM 파이프라인 — 여러 호출을 엮어 상품 요약을 만든다 (스네이크)."""
     r1y, r2y = 16.6, 21.4
-    top = [("① 요소 유형", "무슨 정보가 있나"), ("② 소분류", "요소를 묶는다"),
+    top = [("① 요소 유형", "무슨 정보가 있나"), ("② 그룹 묶기", "요소를 묶는다"),
            ("③ 값 추출", "각 요소의 값")]
-    bot = [("④ 소비자 유형", "누구를 위한 상품"), ("⑤ 소분류 요약", "묶음별 한 줄"),
-           ("⑥ 통합 요약", "소비자별 최종")]
+    bot = [("④ 구매자 유형", "누구를 위한 상품"), ("⑤ 정리 — 코드", "LLM 없이 재구성"),
+           ("⑥·⑦ 요약", "그룹별 → 구매자별")]
     xs = [11.0, 24.0, 37.0]
     W = 11.4
     for i, (t, s) in enumerate(top):
@@ -1307,7 +1505,7 @@ def draw_amazon_pipeline(slide):
         if i < 2:
             _line(slide, xs[j], r2y + 1.3, xs[j - 1] + W, r2y + 1.3, color="5B6B7B", width_pt=1.6)
     _label(slide, 11.0, r1y - 1.4, 37.8,
-           "한 번의 호출이 아니라 — 작은 LLM 호출 여섯 개를 파이프라인으로 엮는다",
+           "한 번의 호출이 아니라 — 작은 단계 7개를 사슬로 잇는다 (⑤ 정리는 LLM 없이 코드, 상품 1개에 LLM 호출 ~16번)",
            size=13, color="1F4E79", bold=True)
     _label(slide, 11.0, r2y + 2.9, 37.8,
            "각 단계가 구조화 출력(JSON) — 다음 단계의 입력이 된다", size=12, color="595959")
@@ -1429,12 +1627,64 @@ def add_dpo_template_warning(slide):
         code.top = (code.top or 0) + Cm(2.0)
 
 
+def _set_cell(cell, text: str) -> None:
+    """표 셀 텍스트를 통째로 교체하되 첫 run 의 서식을 유지한다."""
+    tf = cell.text_frame
+    for p in tf.paragraphs[1:]:
+        p._p.getparent().remove(p._p)
+    p0 = tf.paragraphs[0]
+    runs = p0.runs
+    if runs:
+        runs[0].text = text
+        for r in runs[1:]:
+            r._r.getparent().remove(r._r)
+    else:
+        p0.add_run().text = text
+
+
+# p67(원본 3일차 22) 미리보기 표 — 구판 영어 출력이라 강사 실행본(2026-09-03) 한국어로 교체.
+# 유형=실행본 STEP4(consuber_categories) 키, 요약=실행본 최종(total_summary_by_consumer) 값.
+# 모델 생성 결과 그대로 (25인치 QVGA·블루투스 등 모델의 오류도 그대로 — 교육상 '출력을 눈으로 본다').
+_P67_TYPES = ["FPV 비행 애호가", "드론 레크리에이션 사용자",
+              "기술에 관심 있는 초보자", "비디오 콘텐츠 제작자"]
+_P67_SUMMARIES = [
+    "NexwaveRF와 PilotHD를 활용한 고해상도 HD FPV 시스템을 제공하여 실시간 드론 제어를 가능하게 합니다. "
+    "5.8GHz 주파수와 250mW 전력으로 안정적이고 빠른 신호 전송을 실현하며, 25인치 QVGA 화면과 AV 출력을 통해 "
+    "탁월한 시각 경험을 제공합니다. Fatshark 헤드셋은 고해상도 오디오와 편안한 착용감을 특징으로 하여, "
+    "실제 FPV 비행 경험을 위한 최적의 조종 환경을 구축합니다.",
+    "NexwaveRF와 PilotHD를 기반으로 한 고성능 HD FPV 시스템을 제공, 5.8GHz 주파수와 250mW 전력으로 "
+    "실시간 전송 성능을 확보. 25인치 QVGA 화면과 블루투스 연결을 통해 드론 조종 시 실시간 촬영을 즐길 수 있으며, "
+    "Fatshark 헤드셋의 고해상도 오디오와 편안한 착용감을 통해 레크리에이션용 드론 조종 경험을 향상시킴.",
+    "FPV 기술에 처음 접하는 초보자도 쉽게 사용할 수 있는 고성능 드론 조종 시스템입니다. "
+    "NexwaveRF와 PilotHD를 활용해 HD 실시간 영상 전송을 제공하며, 5.8GHz 주파수와 250mW 전력으로 "
+    "안정적이고 빠른 신호 전송을 실현합니다. 25인치 QVGA 화면을 통해 명확한 영상 확인이 가능하고, "
+    "전원 절약 기능과 25cm 전송 거리까지 지원하여 간편한 설정과 실시간 조종을 가능하게 합니다.",
+    "비디오 콘텐츠 제작자들을 위한 고성능 드론 조종 시스템으로, NexwaveRF와 PilotHD를 결합한 HD FPV 기능을 "
+    "제공합니다. 5.8GHz 주파수와 250mW 전력을 활용해 실시간 전송 성능을 최적화하고, 25인치 QVGA 화면을 통해 "
+    "명확한 영상 확인이 가능합니다. 25cm 전송 거리와 AV 출력, 전원 절약 기능을 갖추어 실용성과 효율성을 높였으며, "
+    "드론 제작 및 콘텐츠 공유에 최적화된 시스템입니다.",
+]
+
+
+def sync_p67_table(slide):
+    tbl = next((sh.table for sh in slide.shapes if sh.has_table), None)
+    if tbl is None:
+        raise SystemExit("[중단] p67(3일차 22) 미리보기 표를 못 찾음")
+    for i in range(4):
+        _set_cell(tbl.cell(i + 1, 0), _P67_TYPES[i])
+        _set_cell(tbl.cell(i + 1, 1), _P67_SUMMARIES[i])
+
+
 EXTRAS: list[SlideExtra] = [
+    SlideExtra(deck="3일차", page=22,
+               why="Amazon 미리보기 표 — 구판 영어 → 강사 실행본 한국어 (2026-09-03)",
+               build_fn=sync_p67_table,
+               expect_texts=("FPV 비행 애호가", "비디오 콘텐츠 제작자")),
     SlideExtra(
         deck="3일차", page=18,
         why="Amazon 개요에 6단계 LLM 파이프라인 도해 — 단계가 장마다 흩어져 전체가 안 보인다 (2026-09-01)",
         build_fn=draw_amazon_pipeline,
-        expect_texts=("요소 유형", "통합 요약", "파이프라인으로 엮는다"),
+        expect_texts=("요소 유형", "구매자 유형", "사슬로 잇는다"),
     ),
     # SFT build_messages 코드박스를 노트북 셀8(입력 컬럼 합치기)로 동기화 (2026-09-03 검토)
     SlideExtra(
@@ -1474,10 +1724,78 @@ EXTRAS: list[SlideExtra] = [
                sync_amazon_full("class SummaryDescription",
                                 "summary: str = Field(max_length=400)", _IMP),
                expect=("Field(max_length=400)", 'finish_reason == "length"')),
-    _amz_extra(49, "SummaryDescription(1000) + gen_text_featured_summary",
-               sync_amazon_full("class SummaryDescription",
-                                "summary: str = Field(max_length=1000)", _IMP),
-               expect=("Field(max_length=1000)", 'finish_reason == "length"')),
+    # p49 는 원본이 FEATURED_SUMMARY_PROMPT 정의(영문)까지 한 박스에 뒀는데, 종전
+    # 교체가 class+gen 만 넣어 정의가 사라졌다 — 한국어 정의를 맨 위에 되살린다 (2026-09-03)
+    _amz_extra(49, "FEATURED_SUMMARY_PROMPT(한국어) + SummaryDescription(1000) + gen_text_featured_summary",
+               set_amazon_box("class SummaryDescription",
+                              lambda: (_amz_src('FEATURED_SUMMARY_PROMPT = """') + "\n\n"
+                                       + _IMP + "\n\n"
+                                       + _amz_src("summary: str = Field(max_length=1000)")),
+                              h_cm=21.0),
+               expect=("Field(max_length=1000)", 'finish_reason == "length"',
+                       "모든 출력은 한국어로 작성하세요.")),
+    # ── 영문 프롬프트 5종 → 노트북의 한국어 프롬프트로 통째 교체 (2026-09-03, TASK 2) ──
+    _amz_extra(24, "STEP_1_PROMPT 한국어화",
+               sync_amazon_prompt("STEP_1_PROMPT"),
+               expect=("주어진 상품 설명을 분석해서",)),
+    _amz_extra(31, "STEP_2_PROMPT 한국어화",
+               sync_amazon_prompt("STEP_2_PROMPT"),
+               expect=("앞에서 찾은 속성들을 비슷한 것끼리",)),
+    _amz_extra(35, "STEP_3_PROMPT 한국어화",
+               sync_amazon_prompt("STEP_3_PROMPT"),
+               expect=("원문에서 실제 값을 뽑아내세요",)),
+    _amz_extra(38, "STEP_4_PROMPT 한국어화",
+               sync_amazon_prompt("STEP_4_PROMPT"),
+               expect=("이 상품을 살 만한 사람들을 사용 목적에 따라",)),
+    _amz_extra(44, "FACTUAL_SUMMARY_PROMPT 한국어화",
+               sync_amazon_prompt("FACTUAL_SUMMARY_PROMPT", h_cm=7.5),
+               expect=("사실 위주의 한 줄 문장으로 압축하세요",)),
+    # ── 출력 예제 8곳 → 강사 실행본의 한국어 실제 출력으로 교체 (2026-09-03, TASK 2) ──
+    _amz_extra(29, "STEP1 출력 예제 한국어화",
+               set_amazon_box('"feature_type_list": [', lambda: _OUT_STEP1),
+               expect=('"feature_type": "브랜드"',)),
+    _amz_extra(34, "STEP2 출력 예제 한국어화",
+               set_amazon_box('{"subsection_list": [', lambda: _OUT_STEP2, h_cm=17.5),
+               expect=('"subsection": "제품 기능"',)),
+    _amz_extra(37, "STEP3 코드+출력 한국어화",
+               set_amazon_box("= gen_text_step_3(",
+                              lambda: _amz_src("= gen_text_step_3(") + "\n\n" + _OUT_STEP3),
+               expect=("{'feature_type': '브랜드', 'value': 'Fatshark'}",)),
+    _amz_extra(40, "STEP4 출력 예제 한국어화",
+               set_amazon_box('{"consuber_categories": [', lambda: _OUT_STEP4),
+               expect=('"user_category": "FPV 비행 애호가"',)),
+    _amz_extra(41, "feature_map 코드+출력 한국어화 (곱슬따옴표 코드도 함께 제거)",
+               set_amazon_box("feature_map = {row",
+                              lambda: _amz_src("feature_map = {row") + "\n\nfeature_map\n\n" + _OUT_FEATMAP),
+               expect=("'브랜드': 'Fatshark',",)),
+    _amz_extra(42, "subsection_dict 코드+출력 한국어화 (곱슬따옴표 코드도 함께 제거)",
+               set_amazon_box("subsection_dict = {}",
+                              lambda: _amz_src("subsection_dict = {}") + "\n\nsubsection_dict\n\n" + _OUT_SUBSEC,
+                              h_cm=17.5),
+               expect=("'제품 식별': {'브랜드': 'Fatshark'}",)),
+    _amz_extra(46, "subsection_summary 코드+출력 한국어화",
+               set_amazon_box("subsection_summary = {}",
+                              lambda: _amz_src("subsection_summary = {}") + "\n\nsubsection_summary\n\n" + _OUT_SUBSUM,
+                              h_cm=16.0),
+               expect=("'전송 성능':",)),
+    _amz_extra(51, "최종 구매자별 요약 출력 예제 한국어화",
+               set_amazon_box("'Professional Racing Enthusiasts':", lambda: _OUT_FINAL,
+                              h_cm=17.0),
+               expect=("'FPV 비행 애호가':",)),
+    # p50·52 의 f-string 이 영어(Consumer Type: ...)로 남아 있었다 — 노트북 셀로 교체
+    _amz_extra(50, "구매자별 요약 호출 코드 — 노트북 셀(한국어 f-string)로 동기화",
+               set_amazon_box("describe_by_consumer = {row",
+                              lambda: (_amz_src("describe_by_consumer = {row") + "\n\n"
+                                       + _amz_src("# 제품 정보 요약 문장들을 하나로 묶기") + "\n\n"
+                                       + _amz_src("total_summary_by_consumer = {}")
+                                       + "\n\ntotal_summary_by_consumer"),
+                              h_cm=13.5),
+               expect=("관련 특징 요약:",)),
+    _amz_extra(52, "summarize_by_users 함수화 — 노트북 셀(한국어 f-string)로 동기화",
+               set_amazon_box("def summarize_by_users",
+                              lambda: _amz_src("def summarize_by_users"),
+                              h_cm=16.5),
+               expect=("제품 특징 요약:",)),
     SlideExtra(
         deck="3일차", page=55,
         why="RAG 개요에 파이프라인 도해 — 질문→BM25→문서→LLM→답 (2026-09-01)",
@@ -2169,6 +2487,18 @@ NEW_SLIDES: dict[str, list[dict]] = {
             (1, '영어에선 우연히 넘어갔다가 한국어화로 출력이 길어지며 드러났다 (실측)'),
         ]},
     ],
+    # Amazon 마무리 — 노트북 꼬리(D-1~D-3, 실행본 CELL 59~64)가 슬라이드에 없었다 (TASK 2)
+    "amz_output": [
+        {"header": '5.\tvLLM을 활용한 데이터 생성 실습 – LLM을 활용한 데이터처리 실습',
+         "title": '산출물 — 내일 학습할 데이터를 오늘 만들었다',
+         "bullets": [
+            (0, '파이프라인 산출물은 JSON 이 두 겹 — json.loads 를 두 번 벗겨야 요약 문장이 나온다'),
+            (1, "실패한 행은 예외가 아니라 'error' 문자열로 들어 있다 — 파싱 결과가 dict 인지 확인해 거른다"),
+            (0, '학습쌍으로 만들며 원본 결함도 손본다 — 쪼개진 브랜드명(F, a, t, , S, h, a, r, k) 복원 + 상품 설명 1,200자 컷'),
+            (0, 'data/amazon_ko_sft.mine.jsonl 저장 — 학습 예시 78건 (상품 10개, 제외 0건 · L40S 실측)'),
+            (1, '내일 SFT 가 이 파일을 강사 배포분(assets/amazon_ko_sft.jsonl.gz)과 합쳐 학습한다'),
+        ]},
+    ],
     "promptopt": [
         {"header": '6.\t프롬프트 자동 최적화',
          "title": '학습 전에 최선을 다하는 방법',
@@ -2210,9 +2540,9 @@ NEW_SLIDES: dict[str, list[dict]] = {
         {"header": '6.\t프롬프트 자동 최적화',
          "title": '결과 — 학습 없이 얻은 개선',
          "bullets": [
-            (0, 'GEPA 120회 호출, 약 8분 (L40S 실측) — val 0.80 → 1.00'),
+            (0, 'GEPA 120회 호출, 약 1.7분 (L40S 실측) — val 0.80 → 1.00'),
             (0, 'reflection LM 이 feedback 을 읽고 지시문을 스스로 고쳐 썼다'),
-            (1, 'category 는 대분류로 · features 는 명사 기반으로 간결하게'),
+            (1, "예: 'category 는 가장 낮은 수준의 단일 분류어로' — 규칙을 스스로 써넣었다 (실행마다 문구는 달라짐)"),
             (0, '이 점수가 내일 학습과 비교할 기준선이 됩니다'),
             (1, '학습이 사주는 것은 프롬프트 위에 얹히는 만큼 — 그 차이가 판단 기준'),
         ]},
@@ -2636,7 +2966,7 @@ def make_mixed(replay_ratio, total_blocks):
     _codeslide(
         _CPT, '이어학습 설정 — LR 1/10 과 스케줄러',
         ["이론의 '본학습 LR의 1/10'이 learning_rate=CPT_LR 한 줄입니다.",
-         'epoch 대신 max_steps 로 고정해 데이터 크기와 무관하게 시간을 잡습니다.'],
+         'epoch 대신 max_steps=300 (CPT_STEPS) 으로 고정해 데이터 크기와 무관하게 시간을 잡습니다.'],
         r'''
 m = copy.deepcopy(model_before)            # 매번 학습 전 사본에서 시작
 ds = make_mixed(replay_ratio, NEED)
@@ -3069,6 +3399,27 @@ def expected_counts() -> dict[str, int]:
     return out
 
 
+def _normalize_visual(part) -> None:
+    """복제된 슬라이드의 시각 서식을 통일한다 (원본 pptx 불가침 — 출력만 바꾼다).
+
+    감사(2026-09-03)에서 원본↔신규가 갈린 두 가지만 잡는다. 제목·본문 폰트·크기는
+    이미 일치(HY헤드라인M 35 · 맑은 고딕 24)라 손대지 않는다.
+      1. 코드 폰트: 원본 Courier New → 신규와 같은 Consolas
+      2. 글머리표: • (Arial) → ▪ (Wingdings '§') — 신규 계층(▪/✓) 기준(B)
+    <a:t> 텍스트는 건드리지 않으므로 라운드트립·결정론 검증에 영향이 없다."""
+    el = part._element
+    for tag in ("a:latin", "a:cs", "a:ea"):
+        for e in el.iter(qn(tag)):
+            if e.get("typeface") == "Courier New":
+                e.set("typeface", "Consolas")
+    for bc in el.iter(qn("a:buChar")):
+        if bc.get("char") == "•":
+            bf = bc.getparent().find(qn("a:buFont"))
+            if bf is not None:              # 모든 • 은 Arial buFont 를 가진다(감사 확인)
+                bf.set("typeface", "Wingdings")
+                bc.set("char", "§")
+
+
 def build(dst_dir: Path | None = None, verbose: bool = True) -> dict[str, Path]:
     dst_dir = dst_dir or WORK_PPT
     pc.guard_masters_identical(DECKS)
@@ -3123,6 +3474,7 @@ def build(dst_dir: Path | None = None, verbose: bool = True) -> dict[str, Path]:
                 for ex in extras_by_page.get((it.deck, it.page), []):
                     apply_extra(part, ex)
                     extra_hits[id(ex)] += 1
+                _normalize_visual(part)
                 pc.append_slide_part(shell, part, sid)
                 n_ref += 1
             else:
@@ -3130,6 +3482,7 @@ def build(dst_dir: Path | None = None, verbose: bool = True) -> dict[str, Path]:
                     dd, dp = spec.get("donor", DONOR)
                     part = pc.clone_slide(srcs[dd], zips[dd], dp, shell, media)
                     fill_new_slide(part, spec)
+                    _normalize_visual(part)
                     pc.append_slide_part(shell, part, sid)
                     sid += 1
                     n_new += 1
