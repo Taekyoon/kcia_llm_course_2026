@@ -356,6 +356,10 @@ def judge(question, reference, prediction):
         temperature=0.0,   # 채점은 재현 가능해야 한다
         max_tokens=200,    # ★ 안전장치. 스키마만 믿으면 안 된다
     )
+    # 잘린 응답은 예외가 아니라 "정상 응답"으로 온다 — 여기서 못 잡으면
+    # 아래 json.loads 가 몇 줄 뒤에서 터진다. finish_reason 으로 먼저 막는다.
+    if r.choices[0].finish_reason == "length":
+        raise ValueError("judge 응답이 잘렸습니다 — max_tokens 를 늘리세요")
     return json.loads(r.choices[0].message.content)
 """)
 
