@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import copy
 import sys
+import textwrap
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1296,12 +1297,142 @@ def draw_amazon_pipeline(slide):
            "각 단계가 구조화 출력(JSON) — 다음 단계의 입력이 된다", size=12, color="595959")
 
 
+# ---------------------------------------------------------------------------
+# 코드 슬라이드 — 신규 장에 monospace 코드 박스를 그린다 (2026-09-03)
+#
+# 1일차·Amazon 은 원본 덱의 코드 박스를 물려받지만, 2일차 신규 실습
+# (데이터처리·미니GPT·프롬프트최적화)은 원본에 대응 장이 없어 직접 그린다.
+# 도너(1일차 p19)에는 코드 박스가 없으므로, 본문(제목·인트로) 아래에
+# 코드 카드를 새 도형으로 얹는다. fill_new_slide 가 spec["code"] 를 보고 호출한다.
+# ---------------------------------------------------------------------------
+CODE_FONT = "Consolas"           # Windows 기본 monospace — 들여쓰기가 유지된다
+
+
+def _code(src: str) -> str:
+    """소스에 편하게 들여써 둔 코드 리터럴에서 공통 들여쓰기를 벗기고 앞뒤 개행 정리."""
+    return textwrap.dedent(src).strip("\n")
+
+
+def draw_code_box(slide, code: str, *, top_cm: float, left_cm: float = 10.6,
+                  width_cm: float = 39.2, size: int = 15) -> None:
+    lines = code.split("\n")
+    line_cm = size * 0.047                     # 대략의 줄 간격 (여유 있게)
+    h = line_cm * len(lines) + 0.5
+    card = _kq_card(slide, left_cm, top_cm, width_cm, h,
+                    fill="F5F7FA", line="D0D7DE", radius=0.02)
+    tf = card.text_frame
+    tf.word_wrap = False
+    tf.vertical_anchor = MSO_ANCHOR.TOP
+    tf.margin_left = Cm(0.45)
+    tf.margin_right = Cm(0.2)
+    tf.margin_top = Cm(0.18)
+    tf.margin_bottom = Cm(0.1)
+    for i, ln in enumerate(lines):
+        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+        p.alignment = PP_ALIGN.LEFT
+        p.line_spacing = 1.0
+        p.space_before = Pt(0)
+        p.space_after = Pt(0)
+        comment = ln.lstrip().startswith("#")
+        r = p.add_run()
+        r.text = ln if ln.strip() else " "
+        r.font.name = CODE_FONT
+        r.font.size = Pt(size)
+        r.font.color.rgb = RGBColor.from_string("5A8250" if comment else "1A1A1A")
+        rPr = r._r.get_or_add_rPr()
+        rPr.set(qn("a:lang"), "en-US")
+        ea = etree.SubElement(rPr, qn("a:ea"))
+        ea.set("typeface", TABLE_FONT)          # 한글 주석은 맑은 고딕으로
+        t_el = r._r.find(qn("a:t"))
+        t_el.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+
+
+_JUDGE_SRC = r'''from openai import OpenAI
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="EMPTY")
+
+SCHEMA = {"type": "object",
+  "properties": {
+    "correctness": {"type": "integer", "minimum": 1, "maximum": 5},
+    "relevance":   {"type": "integer", "minimum": 1, "maximum": 5},
+    "fluency":     {"type": "integer", "minimum": 1, "maximum": 5},
+    "reason":      {"type": "string",  "maxLength": 150}},  # 없으면 끝없이 생성(90초 실측)
+  "required": ["correctness", "relevance", "fluency", "reason"]}
+
+def judge(question, reference, prediction):
+    r = client.chat.completions.create(
+        model="Qwen/Qwen3-4B-Instruct-2507",
+        messages=[{"role": "user", "content": JUDGE_PROMPT.format(...)}],
+        response_format={"type": "json_schema",
+                         "json_schema": {"name": "score", "schema": SCHEMA}},
+        temperature=0.0,   # 채점은 재현 가능해야 한다
+        max_tokens=200)    # 하드캡 — 스키마만 믿으면 안 된다
+    return json.loads(r.choices[0].message.content)'''
+
+
+def draw_judge_code(slide):
+    """평가 judge() 코드 — response_format(json_schema)+temperature=0+max_tokens 안전장치."""
+    draw_code_box(slide, _JUDGE_SRC, top_cm=11.0, size=12)
+
+
+# SFT build_messages — 노트북 셀8 은 KULLM(Alpaca) 의 input 컬럼을 합친다.
+# 원본 슬라이드(2일차 p33)는 instruction/output 만 써서 폴백 경로에서 대상이 빠진다.
+_BUILD_MSG_SRC = r'''def build_messages(example):
+    # KULLM 은 Alpaca 계열이라 input 컬럼이 있다 — 합치지 않으면 대상이 빠진다
+    user = example["instruction"]
+    if example.get("input"):
+        user = f'{user}\n\n{example["input"]}'
+    messages = [
+        {"role": "user", "content": user},
+        {"role": "assistant", "content": example["output"]}
+    ]
+    return dict(messages=messages)
+
+raw_datasets = raw_datasets.map(build_messages)'''
+
+
+def sync_build_messages(slide):
+    _set_code_box(slide, "def build_messages", _BUILD_MSG_SRC)
+
+
+def add_dpo_template_warning(slide):
+    """DPO 손조립(2일차 p58) 설명 상자에 '챗 템플릿 어긋남' 경고를 덧붙인다 (노트북 셀11)."""
+    box = next((sh for sh in slide.shapes
+                if sh.has_text_frame and "SFT 학습과는 다르게" in sh.text_frame.text), None)
+    if box is None:
+        raise SystemExit("[중단] DPO 챗템플릿 설명 상자 못 찾음")
+    tf = box.text_frame
+    tmpl = _para_templates(tf)
+    src = tmpl[min(tmpl)]
+    tf._txBody.append(_make_para(
+        src, "주의: 손조립 표기가 위 토크나이저 챗 템플릿과 어긋나면 학습은 끝나는데 답이 "
+             "이상해진다 — 두 곳의 <|user|> 표기가 같은지 확인"))
+    # 경고 2줄이 들어갈 자리를 만들려 코드박스를 아래로 민다
+    code = next((sh for sh in slide.shapes
+                 if sh.has_text_frame and "def chatml_format" in sh.text_frame.text), None)
+    if code is not None:
+        code.top = (code.top or 0) + Cm(2.0)
+
+
 EXTRAS: list[SlideExtra] = [
     SlideExtra(
         deck="3일차", page=18,
         why="Amazon 개요에 6단계 LLM 파이프라인 도해 — 단계가 장마다 흩어져 전체가 안 보인다 (2026-09-01)",
         build_fn=draw_amazon_pipeline,
         expect_texts=("요소 유형", "통합 요약", "파이프라인으로 엮는다"),
+    ),
+    # SFT build_messages 코드박스를 노트북 셀8(입력 컬럼 합치기)로 동기화 (2026-09-03 검토)
+    SlideExtra(
+        deck="2일차", page=33,
+        why="build_messages 가 KULLM input 컬럼을 안 합쳐 폴백 시 대상이 빠진다 — 노트북 셀8과 동기화",
+        build_fn=sync_build_messages,
+        expect_texts=('if example.get("input"):', '"content": user'),
+    ),
+    # DPO 손조립 챗 템플릿 어긋남 경고 추가 (노트북 셀11, 2026-09-03 검토)
+    SlideExtra(
+        deck="2일차", page=58,
+        why="손조립 템플릿이 토크나이저 템플릿과 어긋나면 조용한 실패 — 노트북 셀11 경고가 슬라이드에 없다",
+        build_fn=add_dpo_template_warning,
+        expect_texts=("어긋나면 학습은 끝나는데",),
     ),
     # Amazon 코드박스를 노트북 셀로 통째 교체 (완전 동기화, 2026-09-01)
     _amz_extra(25, "FeatureType",
@@ -1460,6 +1591,7 @@ NEW_SLIDES: dict[str, list[dict]] = {
             (1, 'BLEU: 응답의 n-gram 중 정답에도 있는 비율 (정밀도 중심 · 번역)'),
             (1, 'ROUGE: 정답의 n-gram 중 응답에도 있는 비율 (재현율 중심 · 요약)'),
             (1, 'ROUGE-1 단어 / ROUGE-2 두 단어 연속 / ROUGE-L 최장 공통 부분열'),
+            (1, '코드: evaluate.load("sacrebleu") · evaluate.load("rouge") 로 계산'),
             (0, '빠르고 싸고 재현 가능 — 그런데 다음 장의 한계가 있다'),
         ]},
     ],
@@ -1481,6 +1613,12 @@ NEW_SLIDES: dict[str, list[dict]] = {
             (1, 'correctness(사실) · relevance(질문에 답했나) · fluency(자연스러운가)'),
             (0, '출력은 json_schema 로 강제 — 점수를 프로그램이 읽어야 하므로'),
             (1, '문자열 필드에 maxLength 상한 필수 — 없으면 끝없이 생성한다 (90초 실측)'),
+        ]},
+        {"header": '2. 태스크 정의와 평가',
+         "title": 'judge 코드 — 채점을 강제하고 길이를 막는다',
+         "bullets": [
+            (0, 'json_schema 로 점수 형식 강제 · temperature=0 으로 재현 · max_tokens 로 길이 상한'),
+            (1, 'maxLength + max_tokens 이중 방어 · 잘리면 finish_reason=="length" 로 잡는다'),
         ]},
         {"header": '2. 태스크 정의와 평가',
          "title": 'judge 의 함정',
@@ -1811,13 +1949,14 @@ NEW_SLIDES: dict[str, list[dict]] = {
     ],
     "rag_subq": [
         {"header": '1. Llama Index를 활용한 RAG 실습 – 위키피디아 Q&A 실습',
-         "title": '서브질문 실행 — 프롬프트 교체와 한계',
+         "title": '서브질문 — 왜 쓰고, 어디서 안 통하나',
          "bullets": [
+            (0, '복합 질문("백남준과 맥스웰은 각각…")은 한 번의 검색으로 안 된다 — 둘이 함께 나오는 문서가 없다'),
+            (1, 'LLM 이 하위 질문으로 쪼개 각각 검색 → 답을 합친다 (이게 서브질문의 동기)'),
             (0, '서브질문 생성 프롬프트도 기본이 영어 — 영어 하위 질문은 한국어 위키에서 0건'),
-            (1, '한국어 생성 프롬프트로 update_prompts() 교체 후 실행합니다 (노트북 참조)'),
-            (0, 'response = sub_query_engine.query("백남준과 맥스웰은 각각 어떤 분야의 인물인가요?")'),
-            (1, '하위 질문 2개가 각각 검색되고 답이 합쳐지는 과정을 로그로 확인'),
-            (0, '단일 개체 질문에 쓰면 호출만 늘고 낫지 않습니다 — 항상 좋은 도구는 없다'),
+            (1, '한국어 생성 프롬프트로 update_prompts() 교체 (refine 때와 같은 방식)'),
+            (0, '노트북 실행은 단일 개체 질문: sub_query_engine.query("백남준은 누구인가요?")'),
+            (1, '쪼갤 필요 없는 질문에 쓰면 LLM 호출만 늘고 낫지 않다 — 항상 좋은 도구는 없다'),
         ]},
     ],
     "ml2dl": [
@@ -1927,7 +2066,7 @@ NEW_SLIDES: dict[str, list[dict]] = {
          "bullets": [
             (0, '완전히 같은 문서부터 걷어낸다'),
             (0, '문자열끼리 직접 비교하면 문서 수의 제곱 — 해시로 바꾸면 한 번씩만 훑는다'),
-            (0, '그 전에 유니코드 정규화(NFC) — 눈에 같아 보여도 표현이 다르면 다른 문자열'),
+            (0, '그 전에 유니코드 정규화(NFKC) — 눈에 같아 보여도 표현이 다르면 다른 문자열'),
         ]},
         {"header": '2.\tPre-training 데이터 처리',
          "title": '진짜 문제는 근사 중복',
@@ -2234,6 +2373,321 @@ NEW_SLIDES["promptopt"][_idx_by_title("promptopt", "학습 전에 최선")]["dia
 NEW_SLIDES["promptopt"][_idx_by_title("promptopt", "학습 전에 최선")]["body_h_cm"] = 6.5
 NEW_SLIDES["promptopt"][_idx_by_title("promptopt", "왜 틀렸는지")]["diagram"] = draw_gepa_principle
 NEW_SLIDES["promptopt"][_idx_by_title("promptopt", "왜 틀렸는지")]["body_h_cm"] = 8.0
+NEW_SLIDES["evalsec_b"][_idx_by_title("evalsec_b", "judge 코드")]["diagram"] = draw_judge_code
+NEW_SLIDES["evalsec_b"][_idx_by_title("evalsec_b", "judge 코드")]["body_h_cm"] = 3.4
+
+
+# ---------------------------------------------------------------------------
+# 코드 슬라이드 등록 (2026-09-03)
+#   2일차 신규 실습(데이터처리·미니GPT·프롬프트최적화)은 원리·도해만 있고 코드가
+#   없었다. 1일차·Amazon 처럼 핵심 코드를 보여 주기 위해 각 실습에 코드 장을 끼운다.
+#   큰 리터럴을 건드리지 않고 개념 장 제목을 기준으로 뒤에 삽입한다.
+#   코드 문자열은 r""" 로 두어 \\s \\n 등이 그대로 남게 한다 (셀에서 대조 완료).
+#   코드 장 제목은 위 _idx_by_title 이 쓰는 예약 부분문자열을 피한다.
+# ---------------------------------------------------------------------------
+def _codeslide(header, title, intro, code, *, body_h_cm=4.6, code_size=15):
+    return {"header": header, "title": title,
+            "bullets": [(0, ln) for ln in intro],
+            "code": _code(code), "body_h_cm": body_h_cm, "code_size": code_size}
+
+
+def _insert_after(key, title_sub, specs):
+    i = _idx_by_title(key, title_sub)
+    NEW_SLIDES[key][i + 1:i + 1] = specs
+
+
+_DC = '2.\tPre-training 데이터 처리'
+_insert_after("datacleaning", "정확 중복 제거 — 해시", [_codeslide(
+    _DC, '정확 중복 제거 — 정규화 후 해시 한 번',
+    ['가장 쉬운 것부터. 문서 전체를 해시로 바꿔 한 번씩만 훑으면 완전히 같은 문서가 걸러집니다.'],
+    r'''
+def normalize(text):
+    text = unicodedata.normalize("NFKC", text)  # 조합형→완성형 통일
+    text = re.sub(r"\s+", " ", text)            # 연속 공백을 하나로
+    return text.strip()
+
+def doc_hash(text):
+    return hashlib.sha256(normalize(text).encode()).hexdigest()
+
+seen, exact_dedup = set(), []
+for d in docs:
+    h = doc_hash(d["text"])
+    if h in seen:            # 이미 본 문서면 버린다
+        continue
+    seen.add(h); exact_dedup.append(d)
+''', body_h_cm=3.6)])
+
+_insert_after("datacleaning", "MinHash — 시그니처로 압축", [_codeslide(
+    _DC, 'MinHash 구현 — numpy 벡터화 한 줄',
+    ['진짜 어려운 근사 중복입니다. shingle 집합을 해시 64개의 최솟값만 남겨 고정 길이로 압축합니다.'],
+    r'''
+SHINGLE, NUM_HASH = 5, 64
+MOD = (1 << 31) - 1                     # 2^31-1, 소수
+HASH_A = rng.integers(1, MOD, NUM_HASH, dtype=np.int64)   # 해시함수 64개의
+HASH_B = rng.integers(0, MOD, NUM_HASH, dtype=np.int64)   # a, b 계수
+
+def shingles(text):
+    t = normalize(text)[:MAX_CHARS]     # 앞 1,500자만 본다
+    return np.fromiter(
+        {zlib.crc32(t[i:i+SHINGLE].encode()) & 0x7FFFFFFF
+         for i in range(len(t) - SHINGLE + 1)}, dtype=np.int64)
+
+def minhash(sh):
+    # 이중 루프면 수천 문서에 수십 분. numpy 로 한 번에.
+    return ((HASH_A[:, None] * sh[None, :] + HASH_B[:, None]) % MOD).min(axis=1)
+''', body_h_cm=3.6, code_size=14)])
+
+_insert_after("datacleaning", "LSH 밴딩", [_codeslide(
+    _DC, 'LSH 밴딩 — 후보만 추린다',
+    ['시그니처를 밴드로 쪼갭니다. 한 밴드라도 완전히 같은 문서끼리만 후보로 봐서 비교 자체를 줄입니다.'],
+    r'''
+ROWS = NUM_HASH // BANDS                # 밴드당 4개 (64/16)
+
+buckets = defaultdict(list)
+for idx, sig in enumerate(sigs):
+    for b in range(BANDS):
+        band = tuple(sig[b*ROWS:(b+1)*ROWS].tolist())
+        buckets[(b, band)].append(idx)  # 같은 밴드값끼리 한 통에
+
+candidates = set()
+for members in buckets.values():
+    if len(members) > 1:                # 한 밴드라도 겹친 문서끼리만
+        for i in range(len(members)):
+            for j in range(i+1, len(members)):
+                candidates.add((members[i], members[j]))
+''', body_h_cm=3.6, code_size=14)])
+
+_insert_after("datacleaning", "품질 필터", [_codeslide(
+    _DC, '품질 필터 — 코드로 기준을 못박는다',
+    ['정답이 없는 휴리스틱입니다. 무엇을 어떤 숫자로 자를지 코드에 적어 두고, 걸러진 걸 눈으로 봅니다.'],
+    r'''
+def quality_report(text):
+    t = normalize(text); n = max(1, len(t))
+    lines = [l for l in text.split("\n") if l.strip()]
+    return {
+        "length":         len(t),
+        "hangul_ratio":   len(HANGUL.findall(t)) / n,
+        "special_ratio":  len(SPECIAL.findall(t)) / n,
+        "dup_line_ratio": Counter(lines).most_common(1)[0][1]/len(lines) if lines else 1.0,
+        "sentence_end":   len(re.findall(r"[.!?]", t)),
+    }
+
+RULES = {
+    "너무 짧음":     lambda r: r["length"] < 300,
+    "한국어 부족":   lambda r: r["hangul_ratio"] < 0.3,
+    "특수문자 과다": lambda r: r["special_ratio"] > 0.15,
+    "같은 줄 반복":  lambda r: r["dup_line_ratio"] > 0.3,
+    "문장 구조 없음": lambda r: r["sentence_end"] < 3,
+}
+''', body_h_cm=3.6, code_size=13)])
+
+
+_MG = '3. 미니 GPT 만들기 – 실습 코드'
+_insert_after("minigpt", "토크나이저를 직접 학습", [_codeslide(
+    _MG, '토크나이저를 데이터로 학습 — train_from_iterator',
+    ['사전은 주어지는 게 아니라 데이터에서 자랍니다. ByteLevel BPE 트레이너에 동화 코퍼스를 흘려보냅니다.'],
+    r'''
+tok = Tokenizer(models.BPE())
+tok.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=True)
+tok.decoder = decoders.ByteLevel()
+
+trainer = trainers.BpeTrainer(
+    vocab_size=VOCAB_SIZE,                # 5,000
+    special_tokens=[PAD, BOS, EOS],
+    initial_alphabet=pre_tokenizers.ByteLevel.alphabet(),
+)
+
+def corpus_iter(batch=1000):
+    for i in range(0, len(train_docs), batch):
+        yield train_docs[i : i + batch][COL]
+
+tok.train_from_iterator(corpus_iter(), trainer=trainer, length=len(train_docs))
+''', body_h_cm=3.6, code_size=14)])
+
+_insert_after("minigpt", "토큰화와 청킹", [_codeslide(
+    _MG, '청킹 — 이어붙여 SEQ_LEN 으로 자른다',
+    ['문서 경계를 신경 쓰지 않습니다. 전부 이어붙인 뒤 SEQ_LEN 단위로 자릅니다.',
+     'labels 는 input_ids 의 복사본 — 한 칸 밀기는 손실에서 합니다.'],
+    r'''
+def chunk(batch):
+    flat = [i for seq in batch["ids"] for i in seq]      # 전부 이어붙이고
+    total = (len(flat) // SEQ_LEN) * SEQ_LEN             # SEQ_LEN 배수로 자른다
+    blocks = [flat[i : i + SEQ_LEN] for i in range(0, total, SEQ_LEN)]
+    return {"input_ids": blocks, "labels": [b[:] for b in blocks]}
+''', body_h_cm=4.6, code_size=15)])
+
+_insert_after("minigpt", "Causal Self-Attention", [_codeslide(
+    _MG, '어텐션 구현 — 뒤를 -inf 로 가린다',
+    ["마스크 그림의 '가림'이 코드에선 한 줄입니다. masked_fill 뒤에 softmax 를 태우면 뒤쪽 확률이 0이 됩니다."],
+    r'''
+class CausalSelfAttention(nn.Module):
+    def __init__(self, cfg):
+        self.qkv  = nn.Linear(cfg.n_embd, 3 * cfg.n_embd)   # Q·K·V 한 번에 투영
+        mask = torch.tril(torch.ones(cfg.n_positions, cfg.n_positions))
+        self.register_buffer("mask", mask.view(1, 1, *mask.shape))
+
+    def forward(self, x):
+        B, T, C = x.shape
+        q, k, v = self.qkv(x).split(C, dim=2)               # 셋으로 쪼갬 (k·v 동일)
+        q = q.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
+        att = (q @ k.transpose(-2, -1)) / math.sqrt(self.head_dim)   # Q·Kᵀ / √d
+        att = att.masked_fill(self.mask[:, :, :T, :T] == 0, float("-inf"))
+        att = F.softmax(att, dim=-1)                        # 가린 뒤는 확률 0
+        y = (att @ v).transpose(1, 2).reshape(B, T, C)      # 가중합·헤드 합치기
+        return self.proj(y)
+''', body_h_cm=3.6, code_size=13)])
+
+_insert_after("minigpt", "다음 토큰 맞히기 하나", [_codeslide(
+    _MG, 'MiniGPT forward — 한 칸 밀어 맞힌다',
+    ['PreTrainedModel 을 상속하면 Trainer·generate() 가 공짜로 붙습니다.',
+     "'다음 토큰 맞히기'는 로짓과 라벨을 한 칸 어긋나게 비교하는 두 줄입니다."],
+    r'''
+class MiniGPT(PreTrainedModel, GenerationMixin):
+    config_class = MiniGPTConfig            # 직접 만든 모델을 HF 생태계에 얹는다
+
+    def forward(self, input_ids, labels=None, **kw):
+        pos = torch.arange(input_ids.shape[1], device=input_ids.device)
+        x = self.tok_emb(input_ids) + self.pos_emb(pos)   # 토큰+위치 임베딩
+        for blk in self.blocks:
+            x = blk(x)
+        logits = self.head(self.ln_f(x))
+        loss = None
+        if labels is not None:              # i번째 출력으로 i+1번째 정답을
+            loss = F.cross_entropy(
+                logits[:, :-1, :].reshape(-1, logits.size(-1)),
+                labels[:, 1:].reshape(-1))  # ← 한 칸 밀어서 비교
+        return CausalLMOutput(loss=loss, logits=logits)
+''', body_h_cm=4.6, code_size=13)])
+
+
+_CPT = '4. 도메인 최적화 프리트레이닝에 대해서 – 이어학습 실습'
+_insert_after("minigpt_cpt", "learning rate 는 1/10 로", [
+    _codeslide(
+        _CPT, 'replay 구성 — 총량은 고정, 구성만 바꾼다',
+        ["'동화를 조금 섞는다'가 코드로는 이렇습니다. 비율만 바꾸고 전체 블록 수는 고정합니다.",
+         '학습량이 같은 조건이라야 replay 효과만 떼어 볼 수 있습니다.'],
+        r'''
+def make_mixed(replay_ratio, total_blocks):
+    # 위키 + 동화(replay) 를 섞는다. 총량은 고정, 구성만 바꾼다.
+    n_replay = int(total_blocks * replay_ratio)
+    n_wiki   = total_blocks - n_replay
+    parts = [wiki_train.shuffle(seed=0).select(range(min(n_wiki, len(wiki_train))))]
+    if n_replay:
+        parts.append(lm_train.shuffle(seed=0).select(range(min(n_replay, len(lm_train)))))
+    return concatenate_datasets(parts).shuffle(seed=0)
+''', body_h_cm=4.6, code_size=14),
+    _codeslide(
+        _CPT, '이어학습 설정 — LR 1/10 과 스케줄러',
+        ["이론의 '본학습 LR의 1/10'이 learning_rate=CPT_LR 한 줄입니다.",
+         'epoch 대신 max_steps 로 고정해 데이터 크기와 무관하게 시간을 잡습니다.'],
+        r'''
+m = copy.deepcopy(model_before)            # 매번 학습 전 사본에서 시작
+ds = make_mixed(replay_ratio, NEED)
+
+cpt_args = TrainingArguments(
+    output_dir=f"minigpt_cpt_{int(replay_ratio*100)}",
+    per_device_train_batch_size=BATCH_SIZE,
+    max_steps=CPT_STEPS,                   # epoch 대신 스텝으로 고정
+    learning_rate=CPT_LR,                  # 5e-5 = 본학습(5e-4)의 1/10
+    lr_scheduler_type="cosine_with_min_lr",
+    lr_scheduler_kwargs={"min_lr_rate": 0.1},   # 최저 LR = 최고의 10%
+    warmup_steps=10,
+    bf16=torch.cuda.is_bf16_supported(),
+)
+Trainer(model=m, args=cpt_args, train_dataset=ds,
+        processing_class=tokenizer).train()
+''', body_h_cm=4.6, code_size=13),
+])
+
+
+_PO = '6.\t프롬프트 자동 최적화'
+_insert_after("promptopt", "3막 구조", [_codeslide(
+    _PO, '구조화 출력 — 상한을 두 겹으로 건다',
+    ['JSON 으로 답하라고만 하면 모델이 문자열을 끝없이 씁니다(한 요청이 90초 초과).',
+     '스키마의 maxLength 와 API 의 max_tokens, 두 겹을 겁니다.'],
+    r'''
+TRANSLATE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        # maxLength 없으면 모델이 끝없이 쓴다
+        "translation": {"type": "string", "maxLength": 3000},
+    },
+    "required": ["translation"],
+}
+
+def translate(text):
+    r = client.chat.completions.create(
+        model=MODEL, temperature=0.2,
+        messages=[{"role": "user", "content": TRANSLATE_PROMPT.format(text=text)}],
+        response_format={"type": "json_schema",
+            "json_schema": {"name": "translation", "schema": TRANSLATE_SCHEMA}},
+        max_tokens=1500,   # ★ 스키마의 maxLength 만 믿으면 안 된다
+    )
+    return json.loads(r.choices[0].message.content)["translation"]
+''', body_h_cm=4.6, code_size=13)])
+
+_insert_after("promptopt", "왜 틀렸는지", [
+    _codeslide(
+        _PO, 'DSPy Signature — 형식은 고정, 지시문만 최적화',
+        ['출력 형식은 우리 요구사항입니다 — OutputField 로 못박습니다.',
+         'GEPA 가 고쳐 나가는 것은 오직 지시문 한 줄(docstring)입니다.'],
+        r'''
+class ExtractProduct(dspy.Signature):
+    '''
+    + "'''정보를 추출한다.'''"
+    + r'''          # ← 시작 프롬프트. GEPA 가 이 문장을 고쳐 나간다
+
+    text: str = dspy.InputField()
+    # 출력 형식은 여기서 못박는다. 최적화 대상이 아니다.
+    category: str = dspy.OutputField()
+    features: list[str] = dspy.OutputField()
+    target_users: list[str] = dspy.OutputField()
+
+program = dspy.Predict(ExtractProduct)
+''', body_h_cm=4.6, code_size=15),
+    _codeslide(
+        _PO, 'metric — 판정은 코드로, feedback 이 핵심 채널',
+        ["무엇이 '잘한 것'인지 전부 코드로 판정합니다 — 채점 LLM 이 없으니 노이즈가 0입니다.",
+         "GEPA 엔 점수만이 아니라 '왜 틀렸는지'를 문장으로 함께 넘깁니다."],
+        r'''
+def extract_metric(gold, pred, trace=None, pred_name=None, pred_trace=None):
+    # GEPA 는 5인자 시그니처 · Prediction(score=, feedback=) 을 받는다
+    src   = gold.text
+    feats = [str(x).strip() for x in (getattr(pred, "features", None) or [])]
+    problems = []
+
+    if len(feats) < MIN_FEATURES:
+        problems.append(f"features 가 {len(feats)}개뿐이다. {MIN_FEATURES}개 이상 뽑아야 한다")
+    ungrounded = [f for f in feats if not any(t in src for t in _tokens(f))]
+    if feats and len(ungrounded) > len(feats) // 2:
+        problems.append(f"원문에 없는 내용이다(예: {ungrounded[0][:20]})")
+    # … category 길이 · target_users 개수 · 한국어 여부도 같은 방식으로
+
+    score = max(0.0, 1.0 - 0.2 * len(problems))
+    return dspy.Prediction(score=score, feedback="; ".join(problems) or "정상")
+''', body_h_cm=4.6, code_size=13),
+])
+
+_insert_after("promptopt", "목적함수에 노이즈가 없어야", [_codeslide(
+    _PO, 'reflection LM 분리 + GEPA 실행',
+    ['프롬프트를 통째로 새로 쓰는 reflection 은 출력이 task 보다 훨씬 깁니다.',
+     'task LM 을 그대로 넘기면 제안이 잘려 버려집니다 — 별도 LM 으로 분리합니다.'],
+    r'''
+reflection_lm = dspy.LM(
+    f"openai/{MODEL}", api_base=BASE, api_key="EMPTY", model_type="chat",
+    temperature=1.0,   # 공식 권장. 다양한 제안이 나와야 한다
+    max_tokens=4096,   # ★ 여기가 핵심. task LM(작은 값)을 쓰면 제안이 잘린다
+    cache=False,
+)
+
+optimizer = dspy.GEPA(
+    metric=extract_metric,
+    max_metric_calls=MAX_CALLS,   # 강의용 하드캡. 120회 ≈ 1.7분
+    reflection_lm=reflection_lm,
+    num_threads=8, track_stats=True,
+)
+optimized = optimizer.compile(program, trainset=trainset, valset=valset)
+''', body_h_cm=4.6, code_size=14)])
 
 
 # ---------------------------------------------------------------------------
@@ -2438,6 +2892,12 @@ def fill_new_slide(part, spec: dict) -> None:
         if "body_h_cm" in spec:
             body.height = Cm(spec["body_h_cm"])
         spec["diagram"](slide)
+    if "code" in spec:
+        # 본문(제목·인트로)을 줄이고 그 아래에 monospace 코드 카드를 얹는다
+        bh = spec.get("body_h_cm", 3.2)
+        body.height = Cm(bh)
+        top = (body.top or 0) / 360000 + bh + 0.35
+        draw_code_box(slide, spec["code"], top_cm=top, size=spec.get("code_size", 15))
 
 
 # ---------------------------------------------------------------------------
