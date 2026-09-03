@@ -17,7 +17,8 @@
 
 의존 산출물 (같은 3일차 폴더의 상대경로):
 - ./bm25_retriever  ← 0_HPC_BM25_RAG실습 이 저장
-- data/sft_model    ← 3_HPC_SFT실습 이 저장 (어댑터 + 챗 템플릿 포함 토크나이저)
+- data/sft_model    ← 3_HPC_SFT실습 이 저장 (LoRA 어댑터 + 토크나이저).
+  단 커스텀 챗 템플릿은 코드 지정이라 저장에 안 따라오므로 재로드 후 다시 넣는다.
 """
 
 from __future__ import annotations
@@ -41,6 +42,25 @@ def md(t: str) -> None:
 
 def code(t: str) -> None:
     CELLS.append((CODE, t.strip("\n")))
+
+
+def _sft_chat_template_line() -> str:
+    """SFT 노트북의 DEFAULT_CHAT_TEMPLATE 정의 줄을 원문 그대로 가져온다.
+
+    LoRA 저장에는 커스텀 챗 템플릿이 따라오지 않는다(어댑터+토크나이저만 저장).
+    재로드 후 학습 때와 같은 템플릿을 다시 넣지 않으면 apply_chat_template 이 엉뚱한
+    형식을 만들어 모델이 즉시 EOS 를 뱉어 빈 출력이 난다(3_HPC_SFT실습 셀 27 과 동일).
+    템플릿 문자열에 백슬래시(\\n)가 많아 수기로 옮기면 소실되므로 소스에서 읽는다."""
+    sft_nb = work_path("HPC_SFT실습.ipynb")
+    nb = json.load(open(sft_nb, encoding="utf-8"))
+    for c in nb["cells"]:
+        if c.get("cell_type") != "code":
+            continue
+        for ln in c.get("source", []):
+            if ln.lstrip().startswith("DEFAULT_CHAT_TEMPLATE = "):
+                return ln.rstrip("\n")
+    raise RuntimeError(
+        "SFT 노트북에서 DEFAULT_CHAT_TEMPLATE 를 못 찾음 — SFT 노트북을 먼저 빌드하세요")
 
 
 # =====================================================================
@@ -217,9 +237,11 @@ md("""
 오후에 SFT 실습이 저장한 어댑터(`data/sft_model`)를 불러옵니다.
 같은 0.6B 에 **LoRA 어댑터 하나**가 얹힌 것이 전부입니다 — 파일로 수십 MB 입니다.
 
-토크나이저도 저장본에서 불러옵니다. SFT 때 정한 **챗 템플릿이 함께 저장**되어
-있어서, 학습할 때와 같은 형식으로 물을 수 있습니다.
-"학습할 때와 쓸 때의 형식이 같아야 한다" — SFT 실습의 그 원칙이 여기서도 지켜집니다.
+토크나이저도 저장본에서 불러옵니다. 단 **커스텀 챗 템플릿은 코드로 지정한 것이라
+저장 파일에 안 따라옵니다**(LoRA 는 어댑터와 토크나이저만 저장). 그래서 불러온 뒤
+SFT 학습 때와 **같은 템플릿을 다시 넣어** 형식을 맞춥니다 — 안 그러면 모델이
+학습 분포를 벗어나 빈 답을 내놓습니다. SFT 실습 셀 27 에서 했던 것과 같습니다.
+"학습할 때와 쓸 때의 형식이 같아야 한다" — 그 원칙이 여기서도 지켜집니다.
 
 Base 에는 템플릿 없이 프롬프트를 그대로 넣었는데 SFT 에는 템플릿을 씌우니
 불공정하다고 느낄 수 있습니다. 반대입니다 — **각 모델이 가장 잘 받아들이는
@@ -236,6 +258,12 @@ sft_model, sft_tokenizer = None, None
 if (sft_dir / "adapter_config.json").exists():
     print(f"SFT 산출물을 불러옵니다 — {sft_dir}")
     sft_tokenizer = _AT.from_pretrained(str(sft_dir))
+    # ★ 커스텀 챗 템플릿은 코드로 지정한 것이라 저장 파일에 안 따라온다
+    #   (LoRA: 어댑터 + 토크나이저만 저장). 재로드 후 학습 때와 같은 템플릿을 다시
+    #   넣지 않으면 apply_chat_template 이 엉뚱한 형식을 만들어 모델이 즉시 끝내(EOS)
+    #   빈 출력이 난다. 3_HPC_SFT실습 셀 27 과 동일하게 다시 지정한다.
+    __TEMPLATE_LINE__
+    sft_tokenizer.chat_template = DEFAULT_CHAT_TEMPLATE
     _base = AutoModelForCausalLM.from_pretrained(
         BASE_ID, torch_dtype=torch.bfloat16, device_map="cuda")
     sft_model = PeftModel.from_pretrained(_base, str(sft_dir))
@@ -245,16 +273,22 @@ else:
     print("★ data/sft_model 이 없습니다 — SFT 실습(3_HPC_SFT실습)을 먼저 완주하세요.")
     print("★ 아래 비교 셀은 Base 출력만 보여주게 됩니다.")
     print("★" * 30)
-""")
+""".replace("__TEMPLATE_LINE__", _sft_chat_template_line()))
 
 code("""
 sft_answers = {}
 if sft_model is not None:
     for q in QUESTIONS:
-        messages = [{"role": "user", "content": build_prompt(q)}]
-        chat_text = sft_tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True)
-        inputs = sft_tokenizer(chat_text, return_tensors="pt").to(sft_model.device)
+        # SFT 학습이 모든 예시에 빈 system 을 넣었으므로(3_HPC_SFT실습 참조),
+        # 생성도 같은 형식이어야 한다. system 을 빼고 <|user|> 로 바로 시작하면
+        # 학습 분포를 벗어나 모델이 즉시 끝내(EOS) 빈 출력이 나온다.
+        messages = [
+            {"role": "system", "content": ""},
+            {"role": "user", "content": build_prompt(q)},
+        ]
+        inputs = sft_tokenizer.apply_chat_template(
+            messages, add_generation_prompt=True,
+            return_tensors="pt", return_dict=True).to(sft_model.device)
         with torch.no_grad():
             out = sft_model.generate(**inputs, max_new_tokens=150,
                                      do_sample=False,
