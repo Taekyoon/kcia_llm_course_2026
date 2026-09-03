@@ -120,6 +120,7 @@ PLACEMENT: dict[str, list] = {
         # 구조화 출력의 함정(길이 상한·잘림 검사)을 코드 직전에 설명 (2026-09-01 완전 동기화)
         NewSlide("amz_trap", "구조화 출력의 함정 — 길이 상한·finish_reason (신규 1장)"),
         *refs("3일차", 25, 53, skip=(26, 27)), # pydantic~요약 7단계 — p25 3중복 정리
+        NewSlide("amz_output", "산출물 — amazon_ko_sft.mine.jsonl (신규 1장, 노트북 꼬리 D-1~D-3)"),
         NewSlide("promptopt", "프롬프트 자동 최적화 안내 (신규 ~4장 — 3막 구조)"),
         ref("2일차", 90),                      # 감사합니다
     ],
