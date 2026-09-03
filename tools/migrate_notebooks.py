@@ -2416,6 +2416,8 @@ SFT·DPO 와 같은 설정입니다. 생성할 때 템플릿이 한 군데 달�
     ], drops=[26], globals_=[
         GlobalRule("'data/test_model'", "'data/grpo_model'",
                    "SFT·DPO·GRPO 가 전부 같은 폴더에 저장해 서로 덮어쓰고 있었다", 2),
+        GlobalRule("    rewards_list = [1.0 if match else 0.0 for match in matches]\n", "",
+                   "format_reward 에 쓰지 않는 죽은 코드 한 줄 — 선언 후 아래에서 다시 만들어 return", 1),
     ]),
 
     # =====================================================================
@@ -2433,7 +2435,8 @@ SFT·DPO 와 같은 설정입니다. 생성할 때 템플릿이 한 군데 달�
              f'# 그리고 vLLM 은 torch 를 하드핀하므로 학습 환경과 같은 venv 에 깔면 안 된다.\n'
              f'# 아래는 별도 터미널에서 실행한다:\n'
              f'#   source /opt/vllm-env/bin/activate\n'
-             f'#   nohup vllm serve {SERVE_LM} --port 8000 > vllm.log 2>&1 &\n'
+             f'#   nohup vllm serve {SERVE_LM} --port 8000 \\\n'
+             f'#       --gpu-memory-utilization 0.80 --max-model-len 16384 > vllm.log 2>&1 &\n'
              f'# 기동 확인:\n'
              f'!curl -s http://localhost:8000/v1/models || echo "서버가 아직 준비되지 않았습니다"',
              "api_server deprecated → vllm serve, 별도 venv 분리 (D-2, D-10)"),
@@ -2731,7 +2734,8 @@ SFT·DPO 와 같은 설정입니다. 생성할 때 템플릿이 한 군데 달�
              f"! nohup python -m vllm.entrypoints.openai.api_server --model {SERVE_LM} &",
              f'# 별도 터미널에서 실행한다:\n'
              f'#   source /opt/vllm-env/bin/activate\n'
-             f'#   nohup vllm serve {SERVE_LM} --port 8000 > vllm.log 2>&1 &\n'
+             f'#   nohup vllm serve {SERVE_LM} --port 8000 \\\n'
+             f'#       --gpu-memory-utilization 0.80 --max-model-len 16384 > vllm.log 2>&1 &\n'
              f'!curl -s http://localhost:8000/v1/models || echo "서버가 아직 준비되지 않았습니다"',
              "api_server deprecated → vllm serve, 별도 venv 분리 (D-2, D-10)"),
 
@@ -3002,7 +3006,8 @@ SFT·DPO 와 같은 설정입니다. 생성할 때 템플릿이 한 군데 달�
              'from llama_index.llms.openai_like import OpenAILike\n\n'
              '# 별도 venv 에서 띄운 vLLM 서버에 HTTP 로 붙는다.\n'
              '#   source /opt/vllm-env/bin/activate\n'
-             f'#   nohup vllm serve {SERVE_LM} --port 8000 > vllm.log 2>&1 &\n'
+             f'#   nohup vllm serve {SERVE_LM} --port 8000 \\\n'
+             f'#       --gpu-memory-utilization 0.80 --max-model-len 16384 > vllm.log 2>&1 &\n'
              'Settings.llm = OpenAILike(\n'
              f'    model="{SERVE_LM}",\n'
              '    api_base="http://localhost:8000/v1",\n'
@@ -3041,7 +3046,7 @@ SFT·DPO 와 같은 설정입니다. 생성할 때 템플릿이 한 군데 달�
              '#    (수강생은 프롬프트가 적용된 줄 알고 넘어가게 된다)\n'
              '#    update_prompts() 로 실제 반영한다.\n'
              'from llama_index.core import PromptTemplate\n\n'
-             'new_refine = PromptTemplate("""원 질의는 다음과 같습니다.: {query_str}\n'
+             'REFINE_KO = PromptTemplate("""원 질의는 다음과 같습니다.: {query_str}\n'
              '우리에게 주어진 응답은 다음과 같습니다.: {existing_answer}\n'
              '여기서 아래 컨텍스트를 참고하여, 응답을 더 낫게 만들 수 있는 상황입니다.\n'
              '------------\n'
@@ -3050,7 +3055,7 @@ SFT·DPO 와 같은 설정입니다. 생성할 때 템플릿이 한 군데 달�
              '주어진 새로운 컨텍스트에서, 주어진 질의에 더 나은 답을 응답해주세요. 주어진 컨텍스트가 충분히 유용하지 않으면 기존 응답을 내주세요. 모든 응답은 한국어로 해주세요.\n'
              '개선된 답변: """)\n\n'
              'query_engine.update_prompts(\n'
-             '    {"response_synthesizer:refine_template": new_refine}\n'
+             '    {"response_synthesizer:refine_template": REFINE_KO}\n'
              ')',
              "get_prompts() 직접 대입은 조용히 무시된다 → update_prompts() (D-3)"),
         Rule(27,
